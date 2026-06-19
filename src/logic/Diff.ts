@@ -2,7 +2,7 @@ import { BehaviorSubject, combineLatest, from, map, Observable, switchMap, share
 import { minecraftJar, minecraftJarPipeline, minecraftVersionIds, type MinecraftJar } from "./MinecraftApi";
 import { currentResult, decompileResultPipeline } from "./Decompiler";
 import { calculatedLineChanges } from "./LineChanges";
-import { diffLeftSelectedMinecraftVersion, selectedMinecraftVersion } from "./State";
+import { diffLeftSelectedMinecraftVersion, diffView, selectedMinecraftVersion } from "./State";
 import type { DecompileResult } from "../workers/decompile/types";
 import { classNameFromClassFilePath, isClassFilePath, toClassFilePath, withoutClassExtension, type ClassFilePath, type ClassName } from "../utils/Names";
 
@@ -24,8 +24,8 @@ export function getLeftDiff(): DiffSide {
     if (!leftDiff) {
         leftDiff = {} as DiffSide;
         leftDiff.selectedVersion = diffLeftSelectedMinecraftVersion;
-        combineLatest([leftDiff.selectedVersion, minecraftVersionIds]).subscribe(([version, versions]) => {
-            if (!version && versions.length > 0) {
+        combineLatest([diffView, leftDiff.selectedVersion, minecraftVersionIds]).subscribe(([isDiffView, version, versions]) => {
+            if (isDiffView && !version && versions.length > 0) {
                 leftDiff!.selectedVersion.next(versions[1] || versions[0] || null);
             }
         });
@@ -65,19 +65,23 @@ export interface ChangeInfo {
     deletions?: number;
 }
 
-// Clear calculated line changes when diff versions change to prevent stale data
-setTimeout(() => {
+let clearLineChangesSubscriptionStarted = false;
+function ensureClearLineChangesSubscription() {
+    if (clearLineChangesSubscriptionStarted) return;
+    clearLineChangesSubscriptionStarted = true;
+
     combineLatest([
-        getLeftDiff().selectedVersion,
+        diffLeftSelectedMinecraftVersion,
         selectedMinecraftVersion
     ]).subscribe(() => {
         calculatedLineChanges.next(new Map());
     });
-}, 0);
+}
 
 let diffChanges: Observable<Map<ClassFilePath, ChangeInfo>> | null = null;
 export function getDiffChanges(): Observable<Map<ClassFilePath, ChangeInfo>> {
     if (!diffChanges) {
+        ensureClearLineChangesSubscription();
         diffChanges = combineLatest([
             getLeftDiff().entries,
             getRightDiff().entries,

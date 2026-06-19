@@ -1,4 +1,4 @@
-import { type CSSProperties, memo } from "react";
+import { type CSSProperties, memo, useMemo } from "react";
 import { Divider, Empty, Flex, Input } from "antd";
 import type { SearchProps } from "antd/es/input";
 import { BehaviorSubject, combineLatest, map } from "rxjs";
@@ -29,26 +29,6 @@ interface DiffEntry {
     statusInfo: ChangeInfo;
 }
 
-const entries = combineLatest([getDiffChanges(), searchQuery]).pipe(
-    map(([changesMap, query]) => {
-        const files = query ? performSearch(query, [...changesMap.keys()]) : [...changesMap.keys()];
-        const nextEntries: DiffEntry[] = [];
-
-        for (const file of files) {
-            const info = changesMap.get(file);
-            if (!info) continue;
-
-            nextEntries.push({
-                key: file,
-                file,
-                statusInfo: info,
-            });
-        }
-
-        return nextEntries;
-    })
-);
-
 const DiffViewFileList = () => {
     const onChange: SearchProps["onChange"] = (event) => {
         searchQuery.next(event.target.value);
@@ -71,6 +51,25 @@ const DiffViewFileList = () => {
 };
 
 const DiffChangedFiles = () => {
+    const entries = useMemo(() => combineLatest([getDiffChanges(), searchQuery]).pipe(
+        map(([changesMap, query]) => {
+            const files = query ? performSearch(query, [...changesMap.keys()]) : [...changesMap.keys()];
+            const nextEntries: DiffEntry[] = [];
+
+            for (const file of files) {
+                const info = changesMap.get(file);
+                if (!info) continue;
+
+                nextEntries.push({
+                    key: file,
+                    file,
+                    statusInfo: info,
+                });
+            }
+
+            return nextEntries;
+        })
+    ), []);
     const dataSource = useObservable(entries) || [];
     const currentFile = useObservable(selectedFile);
     const loading = useObservable(isDecompiling);

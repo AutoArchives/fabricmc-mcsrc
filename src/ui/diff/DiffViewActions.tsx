@@ -20,9 +20,8 @@ import {
     type DiffDirection
 } from "./DiffNavigation";
 
-const diffChanges = getDiffChanges();
-
 export const DiffNavigationButtons = () => {
+    const diffChanges = useMemo(() => getDiffChanges(), []);
     const currentFile = useObservable(selectedFile);
     const loading = useObservable(isDecompiling);
     const changes = useObservable(diffChanges);
@@ -68,6 +67,7 @@ export const DiffNavigationButtons = () => {
 };
 
 export const DiffViewModeButtons = () => {
+    const diffChanges = useMemo(() => getDiffChanges(), []);
     const isUnifiedDiff = useObservable(unifiedDiff.observable);
     const isBytecode = useObservable(bytecode.observable);
     const currentFile = useObservable(selectedFile);

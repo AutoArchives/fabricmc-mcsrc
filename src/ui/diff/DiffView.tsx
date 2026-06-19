@@ -16,7 +16,6 @@ import DiffViewFileList from "./DiffViewFileList";
 import DiffVersionSelection from "./DiffVersionSelection";
 
 const { Text, Title } = Typography;
-const diffSummary = getDiffSummary();
 
 const closeMobileDrawer = () => mobileDrawerOpen.next(false);
 const openMobileDrawer = () => mobileDrawerOpen.next(true);
@@ -112,7 +111,7 @@ const MobileDiffHeader = () => {
 type SidebarCloseAction = "close" | "exit";
 
 const DiffSidebar = ({ closeAction = "exit" }: { closeAction?: SidebarCloseAction }) => {
-    const summary = useObservable<DiffSummary>(diffSummary);
+    const summary = useObservable<DiffSummary>(getDiffSummary());
 
     return (
         <aside style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
