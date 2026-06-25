@@ -123,7 +123,7 @@ async function fetchVersions(): Promise<VersionsList> {
 const RELEASE_PATTERN = /^1\.\d+(\.\d+)?$/;
 const SNAPSHOT_PATTERN = /^\d{2}w\d{2}[a-z]$/;
 
-function hasOfficialMappings(version: VersionListEntry): boolean {
+export function hasOfficialMappings(version: VersionListEntry): boolean {
     if (version.type === "release" && RELEASE_PATTERN.test(version.id)) {
         const match = version.id.match(/^1\.(\d+)(?:\.(\d+))?$/);
         if (!match) return false;
