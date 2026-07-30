@@ -14,14 +14,12 @@ interface VersionSelectorProps {
     selectedVersion?: BehaviorSubject<string | null>;
     minWidth?: number;
     size?: ButtonProps["size"];
-    disabled?: boolean;
 }
 
 function VersionSelector({
     selectedVersion = selectedMinecraftVersion,
     minWidth = 128,
     size,
-    disabled = false,
 }: VersionSelectorProps) {
     const versions = useObservable(minecraftVersions);
     const currentVersion = useObservable(selectedVersion);
@@ -129,14 +127,12 @@ function VersionSelector({
             align={{ offset: [12, 0] }}
             arrow={false}
             content={content}
-            open={disabled ? false : open}
+            open={open}
             placement="bottom"
             trigger="click"
-            onOpenChange={nextOpen => {
-                if (!disabled) setOpen(nextOpen);
-            }}
+            onOpenChange={setOpen}
         >
-            <Button disabled={disabled} size={size} style={{ minWidth, justifyContent: "space-between" }}>
+            <Button size={size} style={{ minWidth, justifyContent: "space-between" }}>
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{selectedVersionId}</span>
                 <DownOutlined />
             </Button>
