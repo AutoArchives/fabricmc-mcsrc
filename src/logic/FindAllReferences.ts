@@ -5,6 +5,7 @@ import { referencesQuery } from "./State";
 import type { Token } from "./Tokens";
 import type { DecompileResult } from "../workers/decompile/types";
 import type { ReferenceKey, ReferenceString } from "../workers/jar-index/types";
+import { toClassFilePath, toClassName, type ClassName } from "../utils/Names";
 
 export const referenceResults = referencesQuery
     .pipe(
@@ -73,7 +74,7 @@ function getQueryType(query: ReferenceKey): "class" | "method" | "field" {
 
 interface ReferenceNavigation {
     // The class to navigate to
-    className: string;
+    className: ClassName;
     // The reference being navigated to
     query: ReferenceKey;
     // The location of where the reference is found
@@ -83,8 +84,8 @@ interface ReferenceNavigation {
 export const nextReferenceNavigation = new BehaviorSubject<ReferenceNavigation | undefined>(undefined);
 
 export function goToReference(query: ReferenceKey, reference: ReferenceString) {
-    const className = reference.slice(2).split(":")[0].split('$')[0];
-    openCodeTab(className + ".class");
+    const className = toClassName(reference.slice(2).split(":")[0].split('$')[0]);
+    openCodeTab(toClassFilePath(className));
 
     if (reference.startsWith("c:")) {
         // Nothing to jump to
@@ -118,7 +119,7 @@ export function getNextJumpToken(decompileResult: DecompileResult): Token | unde
 
     { // First find the reference token
         const parts = reference.slice(2).split(":");
-        const classname = parts[0];
+        const classname = toClassName(parts[0]);
         const name = parts[1];
         const descriptor = parts[2];
         const expectedType = reference.startsWith("m:") ? "method" : "field";
@@ -154,9 +155,15 @@ export function getNextJumpToken(decompileResult: DecompileResult): Token | unde
         }
     }
 
-    if (!referenceTokenIndex) {
-        console.log("Could not find reference token for", reference);
-        return undefined;
+    if (referenceTokenIndex === null) {
+        // Synthetic methods and static initializers may not have declarations in
+        // decompiled source. Vineflower instead places their contents directly in
+        // a lambda or initializer, so locate the referenced token in the class.
+        const token = findReferenceToken(decompileResult.tokens, query);
+        if (!token) {
+            console.log("Could not find token for", query);
+        }
+        return token;
     }
 
     const parts = query.split(":");
@@ -169,7 +176,7 @@ export function getNextJumpToken(decompileResult: DecompileResult): Token | unde
         const token = decompileResult.tokens[i];
 
         // Special case for constructor reference
-        if (name == "<init>" && token.type == "class" && token.className == parts[0]) {
+        if (name == "<init>" && token.type == "class" && token.className == toClassName(parts[0])) {
             return token;
         }
 
@@ -186,4 +193,34 @@ export function getNextJumpToken(decompileResult: DecompileResult): Token | unde
     // Just return the declaration that supposedly contains the reference
     console.log("Could not find token for", query);
     return decompileResult.tokens[referenceTokenIndex];
+}
+
+function findReferenceToken(tokens: Token[], query: ReferenceKey): Token | undefined {
+    const parts = query.split(":");
+    const className = toClassName(parts[0]);
+    const name = parts[1];
+    const descriptor = parts[2];
+    const queryType = getQueryType(query);
+
+    return tokens.find(token => {
+        if (token.declaration) {
+            return false;
+        }
+
+        if (queryType == "method") {
+            if (name == "<init>") {
+                return token.type == "class" && token.className == className;
+            }
+
+            return token.type == "method"
+                && token.className == className
+                && token.name == name
+                && token.descriptor == descriptor;
+        }
+
+        return token.type == "field"
+            && token.className == className
+            && token.name == name
+            && token.descriptor == descriptor;
+    });
 }

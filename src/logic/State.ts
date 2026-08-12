@@ -3,6 +3,8 @@ import { pairwise } from "rxjs/operators";
 import { Tab, CodeTab } from "./tabs";
 import { getInitialState } from "./Permalink";
 import { DEFAULT_VERSION, getVersionFromPermalink, type Version } from "./vineflower/versions";
+import type { ClassFilePath } from "../utils/Names";
+import type { ReferenceKey } from "../workers/jar-index/types";
 
 const initialState = getInitialState();
 
@@ -11,14 +13,14 @@ const initialState = getInitialState();
 export const selectedMinecraftVersion = new BehaviorSubject<string | null>(initialState.minecraftVersion);
 
 export const mobileDrawerOpen = new BehaviorSubject(false);
-export const selectedFile = new BehaviorSubject<string | undefined>(initialState.file);
+export const selectedFile = new BehaviorSubject<ClassFilePath | undefined>(initialState.file);
 const initialTab = initialState.file ? new CodeTab(initialState.file) : null;
 export const openTab = new BehaviorSubject<Tab | null>(initialTab);
 export const openTabs = new BehaviorSubject<Tab[]>(initialTab ? [initialTab] : []);
 export const tabHistory = new BehaviorSubject<string[]>(initialState.file ? [initialState.file] : []);
 export const searchQuery = new BehaviorSubject("");
-export const referencesQuery = new BehaviorSubject("");
 export const vineflowerVersion = new BehaviorSubject<Version>(getVersionFromPermalink(initialState.version));
+export const referencesQuery = new BehaviorSubject<ReferenceKey | "">("");
 
 export interface SelectedLines {
     line: number;

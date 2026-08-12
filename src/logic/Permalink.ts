@@ -2,11 +2,12 @@ import { combineLatest } from "rxjs";
 import { resetPermalinkAffectingSettings, supportsPermalinking } from "./Settings";
 import { diffLeftSelectedMinecraftVersion, diffView, vineflowerVersion, selectedFile, selectedLines, selectedMinecraftVersion } from "./State";
 import { vineflowerVersionToPermalinkVersion } from "./vineflower/versions";
+import { toClassFilePath, withoutClassExtension, type ClassFilePath } from "../utils/Names";
 
 export interface State {
     version: number; // Allows us to change the permalink structure in the future
     minecraftVersion: string;
-    file: string | undefined;
+    file: ClassFilePath | undefined;
     selectedLines: {
         line: number;
         lineEnd?: number;
@@ -54,14 +55,10 @@ export const parsePathToState = (path: string): State | null => {
         return {
             version: DEFAULT_STATE.version, // The diff format didnt change from /1/ to /2/, so we can just blindly upgrade all diff permalinks to the new decompiler.
             minecraftVersion: rightMinecraftVersion,
-            file: filePath ? filePath + (filePath.endsWith('.class') ? '' : '.class') : undefined,
+            file: filePath ? toClassFilePath(filePath) : undefined,
             selectedLines: null,
             diff: { leftMinecraftVersion }
         };
-    }
-
-    if (segments.length < 3) {
-        return null;
     }
 
     let minecraftVersion = decodeURIComponent(segments[1]);
@@ -75,7 +72,7 @@ export const parsePathToState = (path: string): State | null => {
     return {
         version,
         minecraftVersion,
-        file: filePath + (filePath.endsWith('.class') ? '' : '.class'),
+        file: filePath ? toClassFilePath(filePath) : undefined,
         selectedLines: lineNumber ? { line: lineNumber, lineEnd: lineEnd || undefined } : null
     };
 };
@@ -137,7 +134,7 @@ if (typeof window !== "undefined") {
             }
 
             if (file) {
-                const className = file.split('/').pop()?.replace('.class', '') || file;
+                const className = withoutClassExtension(file.split('/').pop() || file);
                 document.title = className;
             } else {
                 document.title = "mcsrc.dev";
@@ -154,10 +151,10 @@ if (typeof window !== "undefined") {
             if (diffView) {
                 url += `diff/${diffLeftMinecraftVersion}/${minecraftVersion}`;
                 if (file) {
-                    url += `/${file.replace(".class", "")}`;
+                    url += `/${withoutClassExtension(file)}`;
                 }
             } else {
-                url += `${minecraftVersion}/${file!.replace(".class", "")}`;
+                url += `${minecraftVersion}/${withoutClassExtension(file!)}`;
 
                 if (selectedLines) {
                     const { line, lineEnd } = selectedLines;

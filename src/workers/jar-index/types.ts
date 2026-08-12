@@ -1,10 +1,11 @@
-import { load } from "../../../java/build/generated/teavm/wasm-gc/java.wasm-runtime.js";
-import indexerWasm from '../../../java/build/generated/teavm/wasm-gc/java.wasm?url';
+import { load } from "../../../java/build/generated/teavm/wasm-gc/mcsrc.wasm-runtime.js";
+import indexerWasm from '../../../java/build/generated/teavm/wasm-gc/mcsrc.wasm?url';
 import { openJar, type Jar } from "../../utils/Jar.js";
+import type { ClassFilePath, ClassName } from "../../utils/Names.js";
 
-export type Class = string;
-export type Method = `${string}:${string}:${string}`;
-export type Field = `${string}:${string}:${string}`;
+export type Class = ClassName;
+export type Method = `${ClassName}:${string}:${string}`;
+export type Field = `${ClassName}:${string}:${string}`;
 
 // oxlint-disable-next-line typescript/no-redundant-type-constituents
 export type ReferenceKey = Class | Method;
@@ -15,6 +16,12 @@ export type ReferenceString =
     | `f:${Field}`;
 
 export type ClassDataString = `${string}|${string}|${number}|${string}`;
+
+export type MemberData = {
+    className: ClassName;
+    methods: Method[];
+    fields: Field[];
+};
 
 export class JarIndexer {
     #indexerFunc: Indexer | null = null;
@@ -27,7 +34,7 @@ export class JarIndexer {
                 this.#indexerFunc = teavm.exports as Indexer;
             } catch (e) {
                 console.warn("Failed to load WASM module (non-compliant browser?), falling back to JS implementation", e);
-                this.#indexerFunc = await import("../../../java/build/generated/teavm/js/java.js") as unknown as Indexer;
+                this.#indexerFunc = await import("../../../java/build/generated/teavm/js/mcsrc.js") as unknown as Indexer;
             }
         }
         return this.#indexerFunc;
@@ -42,7 +49,7 @@ export class JarIndexer {
         this.#jar = await openJar(name, blob);
     };
 
-    indexBatch = async (classNames: string[]): Promise<void> => {
+    indexBatch = async (classNames: ClassFilePath[]): Promise<void> => {
         if (!this.#jar) {
             throw new Error("Jar not set in worker");
         }
@@ -50,6 +57,9 @@ export class JarIndexer {
         const currentJar = this.#jar; // Capture for closure
         const arrayBufferPromises = classNames.map(async className => {
             const entry = currentJar.entries[className];
+            if (!entry) {
+                throw new Error(`Class entry not found: ${className}`);
+            }
             const data = await entry.blob();
             return data.arrayBuffer();
         });
@@ -80,6 +90,19 @@ export class JarIndexer {
         const indexer = await this.getIndexer();
         return indexer.getClassData();
     };
+
+    getMemberData = async (): Promise<MemberData[]> => {
+        const indexer = await this.getIndexer();
+        const raw = indexer.getMemberData();
+        return raw.map(item => {
+            let parts = item.split("|");
+            return {
+                className: parts[0] as ClassName,
+                methods: parts[1].split(",") as Method[],
+                fields: parts[2].split(",") as Field[]
+            }
+        })
+    };
 }
 
 interface Indexer {
@@ -88,4 +111,5 @@ interface Indexer {
     getReferenceSize(): number;
     getBytecode(classData: ArrayBufferLike[]): string;
     getClassData(): ClassDataString[];
+    getMemberData(): string[];
 }

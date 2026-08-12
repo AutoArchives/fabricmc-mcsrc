@@ -1,100 +1,109 @@
 package mcsrc;
 
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.FieldVisitor;
+import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.util.Textifier;
-import org.objectweb.asm.util.TraceClassVisitor;
-import org.teavm.jso.JSExport;
-import org.teavm.jso.typedarrays.ArrayBuffer;
-import org.teavm.jso.typedarrays.Int8Array;
 
-import java.io.PrintWriter;
-import java.io.StringWriter;
-import java.util.*;
+public final class Indexer {
+    private final Map<String, Set<String>> references = new HashMap<>();
+    private final Map<String, ClassData> classes = new HashMap<>();
+    private final Map<String, MutableMemberData> members = new HashMap<>();
 
-public class Indexer {
-    private static final Map<String, Set<String>> references = new HashMap<>();
-    private static int referenceSize = 0;
-    
-    private static final Map<String, ClassInheritanceInfo> inheritanceData = new HashMap<>();
-
-    @JSExport
-    public static void index(ArrayBuffer arrayBuffer) {
-        byte[] bytes = new Int8Array(arrayBuffer).copyToJavaArray();
-        ClassReader classReader = new ClassReader(bytes);
-        // Use SKIP_FRAMES for faster parsing - we don't need stack map frames for indexing
-        classReader.accept(new ClassIndexVisitor(Opcodes.ASM9), ClassReader.SKIP_FRAMES);
+    public void index(byte[] classBytes) {
+        new ClassReader(classBytes).accept(new ClassIndexVisitor(this), ClassReader.SKIP_FRAMES);
     }
 
-    @JSExport
-    public static String[] getReference(String key) {
-        return references.getOrDefault(key, Set.of()).toArray(String[]::new);
+    public void indexDeclarations(byte[] classBytes) {
+        new ClassReader(classBytes).accept(
+                new DeclarationIndexVisitor(this),
+                ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
     }
 
-    @JSExport
-    public static int getReferenceSize() {
-        return referenceSize;
+    public Set<String> references(String key) {
+        return Set.copyOf(references.getOrDefault(key, Set.of()));
     }
 
-    @JSExport
-    public static String getBytecode(ArrayBuffer[] classBuffers) {
-        StringBuilder result = new StringBuilder();
+    public int referenceCount() {
+        return references.values().stream().mapToInt(Set::size).sum();
+    }
 
-        for (ArrayBuffer classBuffer : classBuffers) {
-            byte[] bytes = new Int8Array(classBuffer).copyToJavaArray();
-            ClassReader classReader = new ClassReader(bytes);
-            Textifier textifier = new Textifier();
+    public IndexData data() {
+        Map<String, MemberData> memberData = new HashMap<>();
+        members.forEach((name, data) -> memberData.put(name, data.snapshot()));
+        return new IndexData(classes, memberData);
+    }
 
-            StringWriter out = new StringWriter();
-            PrintWriter writer = new PrintWriter(out);
-            TraceClassVisitor traceClassVisitor = new TraceClassVisitor(null, textifier, writer);
-            classReader.accept(traceClassVisitor, 0);
+    public void clear() {
+        references.clear();
+        classes.clear();
+        members.clear();
+    }
 
-            result.append(out).append("\n");
+    void addReference(String key, String value) {
+        if (key.startsWith("net/minecraft") || key.startsWith("com/mojang")) {
+            references.computeIfAbsent(key, ignored -> new HashSet<>()).add(value);
+        }
+    }
+
+    void addClass(String name, String superName, String[] interfaces, int access) {
+        classes.put(name, new ClassData(name, superName, interfaces == null ? List.of() : List.of(interfaces), access));
+    }
+
+    void addMethod(Entry.Method method) {
+        members.computeIfAbsent(method.owner(), MutableMemberData::new).methods.add(method);
+    }
+
+    void addField(Entry.Field field) {
+        members.computeIfAbsent(field.owner(), MutableMemberData::new).fields.add(field);
+    }
+
+    private static final class MutableMemberData {
+        private final String className;
+        private final Set<Entry.Method> methods = new HashSet<>();
+        private final Set<Entry.Field> fields = new HashSet<>();
+
+        private MutableMemberData(String className) {
+            this.className = className;
         }
 
-        return result.toString();
+        private MemberData snapshot() {
+            return new MemberData(className, methods, fields);
+        }
     }
 
-    public static void addReference(String key, String value) {
-        if (!isMinecraft(key)) {
-            return;
+    private static final class DeclarationIndexVisitor extends ClassVisitor {
+        private final Indexer indexer;
+        private String className;
+
+        private DeclarationIndexVisitor(Indexer indexer) {
+            super(Opcodes.ASM9);
+            this.indexer = indexer;
         }
 
-        references.computeIfAbsent(key, k -> new HashSet<>()).add(value);
-        referenceSize++;
-    }
-
-    private static boolean isMinecraft(String str) {
-        return str.startsWith("net/minecraft") || str.startsWith("com/mojang");
-    }
-    
-    public static void addClassData(String className, String superName, String[] interfaces, int accessFlags) {
-        ClassInheritanceInfo info = inheritanceData.computeIfAbsent(className, k -> new ClassInheritanceInfo());
-        info.className = className;
-        info.superName = superName;
-        info.interfaces = interfaces != null ? interfaces : new String[0];
-        info.accessFlags = accessFlags;
-    }
-    
-    @JSExport
-    public static String[] getClassData() {
-        List<String> result = new ArrayList<>();
-        for (ClassInheritanceInfo info : inheritanceData.values()) {
-            StringBuilder sb = new StringBuilder();
-            sb.append(info.className).append("|");
-            sb.append(info.superName != null ? info.superName : "").append("|");
-            sb.append(info.accessFlags).append("|");
-            sb.append(String.join(",", info.interfaces));
-            result.add(sb.toString());
+        @Override
+        public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
+            className = name;
+            indexer.addClass(name, superName, interfaces, access);
         }
-        return result.toArray(new String[0]);
-    }
-    
-    private static class ClassInheritanceInfo {
-        String className;
-        String superName;
-        String[] interfaces;
-        int accessFlags;
+
+        @Override
+        public FieldVisitor visitField(int access, String name, String descriptor, String signature, Object value) {
+            indexer.addField(new Entry.Field(className, name, descriptor));
+            return null;
+        }
+
+        @Override
+        public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
+            indexer.addMethod(new Entry.Method(className, name, descriptor));
+            return null;
+        }
     }
 }

@@ -4,6 +4,7 @@ import { DecompileJar, type DecompileResult } from "./types";
 import type { Jar } from "../../utils/Jar";
 import type { DecompileWorker } from "./worker";
 import { DEFAULT_VERSION, type Version } from "../../logic/vineflower/versions";
+import { toClassFilePath, type ClassName } from "../../utils/Names";
 
 function createWorker() {
     const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module", name: "decompiler" });
@@ -119,13 +120,13 @@ export function decompileEntireJar(jar: Jar, version: Version, options?: Decompi
     };
 }
 
-export async function decompileClass(className: string, jar: Jar, version: Version): Promise<DecompileResult> {
-    className = className.replace(".class", "");
-    const entry = jar.entries[`${className}.class`];
+export async function decompileClass(className: ClassName, jar: Jar, version: Version): Promise<DecompileResult> {
+    const entry = jar.entries[toClassFilePath(className)];
 
     if (!entry) return {
         className,
         checksum: 0,
+        jarName: jar.name,
         source: `// Class not found: ${className}`,
         tokens: [],
         language: "java",
@@ -137,13 +138,13 @@ export async function decompileClass(className: string, jar: Jar, version: Versi
     return await worker.decompile(className, jar.name, jar.blob);
 }
 
-export async function getClassBytecode(className: string, jar: Jar): Promise<DecompileResult> {
-    className = className.replace(".class", "");
-    const entry = jar.entries[`${className}.class`];
+export async function getClassBytecode(className: ClassName, jar: Jar): Promise<DecompileResult> {
+    const entry = jar.entries[toClassFilePath(className)];
 
     if (!entry) return {
         className,
         checksum: 0,
+        jarName: jar.name,
         source: `// Class not found: ${className}`,
         tokens: [],
         language: "bytecode",
@@ -160,10 +161,10 @@ export async function getClassBytecode(className: string, jar: Jar): Promise<Dec
             continue;
         }
 
-        const data = await jar.entries[`${classFile}.class`].bytes();
+        const data = await jar.entries[toClassFilePath(classFile)]!.bytes();
         classData.push(data.buffer);
     }
 
     const worker = await findWorker();
-    return await worker.getClassBytecode(className, entry.crc32, classData);
+    return await worker.getClassBytecode(className, entry.crc32, jar.name, classData);
 }

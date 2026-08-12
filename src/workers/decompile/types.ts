@@ -1,10 +1,12 @@
 import type { Token } from "../../logic/Tokens";
 import type { Jar } from "../../utils/Jar";
 import type { Version } from "../../logic/vineflower/versions";
+import { classNameFromClassFilePath, isClassFilePath, toClassFilePath, type ClassName } from "../../utils/Names";
 
 export type DecompileResult = {
-    className: string;
+    className: ClassName;
     checksum: number;
+    jarName: string;
     source: string;
     tokens: Token[];
     language: 'java' | 'bytecode';
@@ -13,12 +15,11 @@ export type DecompileResult = {
 
 export type DecompileOption = { key: string, value: string; };
 
-export type DecompileData = {
-    [className: string]: undefined | {
+export type DecompileData = Partial<Record<ClassName, {
         checksum: number;
         data: Uint8Array | Promise<Uint8Array>;
-    };
-};
+    }>>;
+type DecompileDataEntry = NonNullable<DecompileData[ClassName]>;
 
 export class DecompileJar {
     jar: Jar;
@@ -27,8 +28,8 @@ export class DecompileJar {
     constructor(jar: Jar) {
         this.jar = jar;
         this.proxy = new Proxy({}, {
-            get(_, className: string): DecompileData[""] {
-                const entry = jar.entries[className + ".class"];
+            get(_, className: string): DecompileDataEntry | undefined {
+                const entry = jar.entries[toClassFilePath(className)];
                 if (entry) return {
                     checksum: entry.crc32,
                     data: entry.bytes()
@@ -37,12 +38,12 @@ export class DecompileJar {
         });
     }
 
-    private _classes: string[] | null = null;
+    private _classes: ClassName[] | null = null;
     get classes() {
         if (this._classes) return this._classes;
         this._classes = Object.keys(this.jar.entries)
-            .filter(f => f.endsWith(".class"))
-            .map(f => f.replace(".class", ""))
+            .filter(isClassFilePath)
+            .map(classNameFromClassFilePath)
             .sort();
         return this._classes;
     }

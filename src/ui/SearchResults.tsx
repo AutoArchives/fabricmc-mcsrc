@@ -1,13 +1,15 @@
-import { List } from "antd";
+import { List, theme } from "antd";
 import { searchResults } from "../logic/JarFile";
 import { useObservable } from "../utils/UseObservable";
 import { openCodeTab } from "../logic/tabs";
+import { withoutClassExtension, type ClassFilePath } from "../utils/Names";
 
 const SearchResults = () => {
+    const { token } = theme.useToken();
     const results = useObservable(searchResults);
 
     return (
-        <List
+        <List<ClassFilePath>
             size="small"
             dataSource={results}
             renderItem={(item) => (
@@ -22,7 +24,10 @@ const SearchResults = () => {
                     onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'}
                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                 >
-                    {item.replace(/\.class$/, '')}
+                    {((path) => <>
+                        <span style={{ color: token.colorTextTertiary }}>{path.slice(0, path.lastIndexOf("/") + 1)}</span>
+                        {path.slice(path.lastIndexOf("/") + 1)}
+                    </>)(withoutClassExtension(item))}
                 </List.Item>
             )}
         />

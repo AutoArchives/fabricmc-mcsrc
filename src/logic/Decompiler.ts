@@ -1,7 +1,6 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import {
     BehaviorSubject,
-    combineLatest, distinctUntilChanged, from, map, Observable, of, shareReplay, switchMap, tap, throttleTime
+    combineLatest, distinctUntilChanged, from, map, Observable, of, shareReplay, switchMap, throttleTime
 } from "rxjs";
 import { minecraftJar, type MinecraftJar } from "./MinecraftApi";
 import { selectedFile, vineflowerVersion } from "./State";
@@ -10,6 +9,7 @@ import type { Options } from "./vineflower/vineflower";
 import type { DecompileResult } from "../workers/decompile/types";
 import * as worker from "../workers/decompile/client";
 import type { Jar } from "../utils/Jar";
+import { classNameFromClassFilePath, type ClassName } from "../utils/Names";
 
 const decompilerCounter = new BehaviorSubject<number>(0);
 
@@ -18,21 +18,15 @@ export const isDecompiling = decompilerCounter.pipe(
     distinctUntilChanged()
 );
 
-const decompilerOptions = combineLatest([
-    displayLambdas.observable
-]).pipe(
-    distinctUntilChanged(),
-    switchMap(([displayLambdas]) => {
-        const options: Options = {};
+export function getDecompilerOptions(displayLambdas: boolean): Options {
+    const options: Options = {};
 
-        if (displayLambdas) {
-            options["mark-corresponding-synthetics"] = "1";
-        }
+    if (displayLambdas) {
+        options["mark-corresponding-synthetics"] = "1";
+    }
 
-        return of(options);
-    }),
-);
-decompilerOptions.subscribe(v => worker.setOptions(v));
+    return options;
+}
 
 export const currentResult = decompileResultPipeline(minecraftJar);
 export function decompileResultPipeline(jar: Observable<MinecraftJar>): Observable<DecompileResult> {
@@ -40,26 +34,30 @@ export function decompileResultPipeline(jar: Observable<MinecraftJar>): Observab
         selectedFile,
         jar,
         bytecode.observable,
-        decompilerOptions,
+        displayLambdas.observable,
     ]).pipe(
         distinctUntilChanged(),
         throttleTime(250),
-        switchMap(([className, jar, bytecode]) => {
-            if (!className) {
+        switchMap(([file, jar, bytecode, displayLambdas]) => {
+            if (!file) {
                 return of();
             }
 
+            const className = classNameFromClassFilePath(file);
             if (bytecode) {
                 return from(getClassBytecode(className, jar.jar));
             }
 
-            return from(decompileClass(className, jar.jar));
+            const options = getDecompilerOptions(displayLambdas);
+            return from(worker.setOptions(options)).pipe(
+                switchMap(() => from(decompileClass(className, jar.jar)))
+            );
         }),
         shareReplay({ bufferSize: 1, refCount: false })
     );
 }
 
-export async function getClassBytecode(className: string, jar: Jar) {
+export async function getClassBytecode(className: ClassName, jar: Jar) {
     try {
         decompilerCounter.next(decompilerCounter.value + 1);
         return await worker.getClassBytecode(className, jar);
@@ -68,7 +66,7 @@ export async function getClassBytecode(className: string, jar: Jar) {
     }
 }
 
-export async function decompileClass(className: string, jar: Jar) {
+export async function decompileClass(className: ClassName, jar: Jar) {
     try {
         decompilerCounter.next(decompilerCounter.value + 1);
         return await worker.decompileClass(className, jar, vineflowerVersion.value);

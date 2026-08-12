@@ -1,24 +1,25 @@
 import * as Comlink from "comlink";
 import { BehaviorSubject, distinctUntilChanged, map, shareReplay } from "rxjs";
 import { minecraftJar, type MinecraftJar } from "../../logic/MinecraftApi";
-import type { ClassDataString, JarIndexer, ReferenceKey, ReferenceString } from "./types";
+import type {ClassDataString, JarIndexer, MemberData, ReferenceKey, ReferenceString} from "./types";
 import Dexie, { type EntityTable } from "dexie";
+import { isClassFilePath, toClassName, type ClassFilePath, type ClassName } from "../../utils/Names";
 
 
 export interface ClassData {
-    className: string;
-    superName: string;
+    className: ClassName;
+    superName: ClassName | "";
     accessFlags: number;
-    interfaces: string[];
+    interfaces: ClassName[];
 }
 
 export function parseClassData(data: ClassDataString): ClassData {
     const [className, superName, accessFlagsStr, interfacesStr] = data.split("|");
     return {
-        className,
-        superName,
+        className: toClassName(className),
+        superName: superName ? toClassName(superName) : "",
         accessFlags: parseInt(accessFlagsStr, 10),
-        interfaces: interfacesStr ? interfacesStr.split(",").filter(i => i.length > 0) : []
+        interfaces: interfacesStr ? interfacesStr.split(",").filter(i => i.length > 0).map(toClassName) : []
     };
 }
 
@@ -63,7 +64,7 @@ export class JarIndex {
     private _workers: ReturnType<typeof createWrorker>[] | undefined;
     private get workers() {
         if (this._workers) return this._workers;
-        const threads = navigator.hardwareConcurrency || 4;
+        const threads = Math.max(1, (navigator.hardwareConcurrency || 4) - 1);
         this._workers = Array.from({ length: threads }, () => createWrorker());
         console.log(`Created JarIndex with ${threads} workers`);
         return this._workers;
@@ -106,11 +107,11 @@ export class JarIndex {
 
             const jar = this.minecraftJar.jar;
             const classNames = Object.keys(jar.entries)
-                .filter(name => name.endsWith(".class"));
+                .filter(isClassFilePath);
 
             let promises: Promise<number>[] = [];
 
-            let taskQueue = [...classNames];
+            let taskQueue: ClassFilePath[] = [...classNames];
             let completed = 0;
 
             for (let i = 0; i < this.workers.length; i++) {
@@ -161,6 +162,17 @@ export class JarIndex {
         return Promise.all(results).then(arrays => arrays.flat());
     }
 
+    async getMemberData(): Promise<MemberData[]> {
+        await this.indexJar();
+
+        let results: Promise<MemberData[]>[] = [];
+
+        for (const worker of this.workers) {
+            results.push(worker.c.getMemberData());
+        }
+
+        return Promise.all(results).then(arrays => arrays.flat());
+    }
     async getClassData(): Promise<ClassData[]> {
         if (this.classDataCache) {
             return this.classDataCache;

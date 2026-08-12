@@ -6,6 +6,7 @@ import { type DecompileResult, type DecompileOption, type DecompileData, Decompi
 import { openJar } from "../../utils/Jar";
 import { JarIndexer } from "../jar-index/types";
 import { DEFAULT_VERSION, type Version } from "../../logic/vineflower/versions";
+import { classNameFromDottedClassName, toClassName, type ClassName } from "../../utils/Names";
 
 export class DecompileWorker {
     #lastPromise: Promise<unknown> | undefined = undefined;
@@ -29,15 +30,17 @@ export class DecompileWorker {
 
     db = new Dexie("decompiler") as Dexie & {
         options: EntityTable<DecompileOption, "key">,
-        results4: Table<DecompileResult, [string, number, string, Version]>,
+        results6: Table<DecompileResult, [string, number, string, string, Version]>,
     };
 
     constructor(version: Version = DEFAULT_VERSION) {
         this.#version = version;
-        this.db.version(5).stores({
+        this.db.version(7).stores({
             options: "key",
-            results4: "[className+checksum+language+version]",
+            results6: "[className+checksum+language+jarName+version]",
             // clear old data
+            results5: null,
+            results4: null,
             results3: null,
             results2: null,
             results: null,
@@ -71,7 +74,7 @@ export class DecompileWorker {
         }
 
         if (changed || notVisited.size > 0) {
-            await this.db.results4.clear();
+            await this.db.results6.clear();
         }
 
         await this.db.options.clear();
@@ -84,15 +87,15 @@ export class DecompileWorker {
     });
 
     clear = (): Promise<number> => this.schedule(async () => {
-        const count = await this.db.results4.count();
-        await this.db.results4.clear();
+        const count = await this.db.results6.count();
+        await this.db.results6.clear();
         return count;
     });
 
     decompileMany = (
         jarName: string,
         jarBlob: Blob,
-        classNames: string[],
+        classNames: ClassName[],
         sab: SharedArrayBuffer,
         splits: number,
         logger?: (index: number) => Promise<void> | void,
@@ -103,8 +106,8 @@ export class DecompileWorker {
         let logPromises: Promise<void>[] = [];
         let nameLogger;
         if (logger) {
-            const class2index = new Map(classNames.map((v, i) => [v, i] as [string, number]));
-            nameLogger = (className: string) => {
+            const class2index = new Map(classNames.map((v, i) => [v, i] as [ClassName, number]));
+            nameLogger = (className: ClassName) => {
                 if (!class2index) return;
                 const i = class2index.get(className);
                 if (i) logPromises.push(Promise.resolve(logger!(i)));
@@ -116,7 +119,7 @@ export class DecompileWorker {
             const i = Atomics.add(state, 0, splits);
             if (i >= classNames.length) break;
 
-            const targetClassNames: string[] = [];
+            const targetClassNames: ClassName[] = [];
             for (let j = 0; j < splits; j++) {
                 if ((i + j) >= classNames.length) break;
 
@@ -124,9 +127,9 @@ export class DecompileWorker {
                 const checksum = jar.proxy[className]?.checksum;
                 if (!checksum) continue;
 
-                const dbCount = await this.db.results4
-                    .where("[className+checksum+language+version]")
-                    .equals([className, checksum, "java", this.#version])
+                const dbCount = await this.db.results6
+                    .where("[className+checksum+language+jarName+version]")
+                    .equals([className, checksum, "java", jarName, this.#version])
                     .count();
 
                 if (dbCount >= 1) {
@@ -137,7 +140,7 @@ export class DecompileWorker {
             }
 
             try {
-                const result = await this.#decompile(jar.classes, targetClassNames, jar.proxy, nameLogger);
+                const result = await this.#decompile(jarName, jar.classes, targetClassNames, jar.proxy, nameLogger);
                 count += result.length;
             } catch (e) {
                 console.error("Error during decompilation:", e);
@@ -151,23 +154,24 @@ export class DecompileWorker {
     });
 
     decompile = (
-        className: string,
+        className: ClassName,
         jarName: string,
         jarBlob: Blob,
     ): Promise<DecompileResult> => this.schedule(async () => {
         try {
             const jar = new DecompileJar(await openJar(jarName, jarBlob));
             const checksum = jar.proxy[className]?.checksum;
-            const dbResult = await this.db.results4.get([className, checksum, "java", this.#version]);
+            const dbResult = await this.db.results6.get([className, checksum, "java", jarName, this.#version]);
             if (dbResult) return dbResult;
 
-            const result = await this.#decompile(jar.classes, [className], jar.proxy);
+            const result = await this.#decompile(jarName, jar.classes, [className], jar.proxy);
             return result[0];
         } catch (e) {
             console.error(`Error during decompilation of class '${className}':`, e);
             return {
                 className,
                 checksum: 0,
+                jarName,
                 source: `// Error during decompilation: ${(e as Error).message}`,
                 tokens: [],
                 language: "java",
@@ -177,19 +181,21 @@ export class DecompileWorker {
     });
 
     async #decompile(
-        jarClasses: string[],
-        classNames: string[],
+        jarName: string,
+        jarClasses: ClassName[],
+        classNames: ClassName[],
         classData: DecompileData,
-        logger?: (className: string) => void,
+        logger?: (className: ClassName) => void,
     ): Promise<DecompileResult[]> {
         const allTokens: Record<string, Token[]> = {};
         let currentContent: string | undefined;
         let currentTokens: Token[] | undefined;
-        let currentClassName: string | undefined;
+        let currentClassName: ClassName | undefined;
 
         const sources = await vf.decompile(this.#version, classNames, {
             source: async (name) => {
-                const data = await classData[name]?.data;
+                const className = toClassName(name);
+                const data = await classData[className]?.data;
 
                 if (!data) {
                     if (name.startsWith("net/minecraft/")) {
@@ -211,7 +217,7 @@ export class DecompileWorker {
                     }
                 },
                 startClass(className) {
-                    currentClassName = className;
+                    currentClassName = toClassName(className);
                 },
                 endClass() {
                     if (logger && currentClassName) logger(currentClassName);
@@ -224,19 +230,19 @@ export class DecompileWorker {
                     currentTokens = [];
                 },
                 visitClass(start, length, declaration, name) {
-                    currentTokens!.push({ type: "class", start, length, className: name, declaration });
+                    currentTokens!.push({ type: "class", start, length, className: toClassName(name), declaration });
                 },
                 visitField(start, length, declaration, className, name, descriptor) {
-                    currentTokens!.push({ type: "field", start, length, className, declaration, name, descriptor });
+                    currentTokens!.push({ type: "field", start, length, className: toClassName(className), declaration, name, descriptor });
                 },
                 visitMethod(start, length, declaration, className, name, descriptor) {
-                    currentTokens!.push({ type: "method", start, length, className, declaration, name, descriptor });
+                    currentTokens!.push({ type: "method", start, length, className: toClassName(className), declaration, name, descriptor });
                 },
                 visitParameter(start, length, declaration, className, _methodName, _methodDescriptor, _index, _name) {
-                    currentTokens!.push({ type: "parameter", start, length, className, declaration });
+                    currentTokens!.push({ type: "parameter", start, length, className: toClassName(className), declaration });
                 },
                 visitLocal(start, length, declaration, className, _methodName, _methodDescriptor, _index, _name) {
-                    currentTokens!.push({ type: "local", start, length, className, declaration });
+                    currentTokens!.push({ type: "local", start, length, className: toClassName(className), declaration });
                 },
                 end() {
                     allTokens[currentContent!] = currentTokens!;
@@ -247,7 +253,8 @@ export class DecompileWorker {
         });
 
         const res: DecompileResult[] = [];
-        for (const [className, source] of Object.entries(sources)) {
+        for (const [rawClassName, source] of Object.entries(sources)) {
+            const className = toClassName(rawClassName);
             const checksum = classData[className]?.checksum ?? 0;
             const sourceStr = source as string;
             const tokens = allTokens[sourceStr] ?? [];
@@ -255,44 +262,44 @@ export class DecompileWorker {
             const importRegex = /^\s*import\s+(?!static\b)([^\s;]+)\s*;/gm;
             let match: RegExpExecArray | null = null;
             while ((match = importRegex.exec(sourceStr)) !== null) {
-                const importPath = match[1].replaceAll('.', '/');
+                const importPath = classNameFromDottedClassName(match[1]);
                 if (importPath.endsWith('*')) {
                     continue;
                 }
 
-                const className = importPath.substring(importPath.lastIndexOf('/') + 1);
+                const simpleClassName = importPath.substring(importPath.lastIndexOf('/') + 1);
 
                 tokens.push({
                     type: "class",
-                    start: match.index + match[0].lastIndexOf(className),
-                    length: importPath.length - importPath.lastIndexOf(className),
+                    start: match.index + match[0].lastIndexOf(simpleClassName),
+                    length: importPath.length - importPath.lastIndexOf(simpleClassName),
                     className: importPath,
                     declaration: false
                 });
             }
 
             tokens.sort((a, b) => a.start - b.start);
-            res.push({ className, checksum, source: sourceStr, tokens, language: "java", version: this.#version });
+            res.push({ className, checksum, jarName, source: sourceStr, tokens, language: "java", version: this.#version });
         }
 
-        await this.db.results4.bulkPut(res);
+        await this.db.results6.bulkPut(res);
         return res;
     }
 
     #indexer = new JarIndexer();
-    getClassBytecode = (className: string, checksum: number, classData: ArrayBufferLike[]): Promise<DecompileResult> => this.schedule(async () => {
-        let result = await this.db.results4.get([className, checksum, "bytecode", this.#version]);
+    getClassBytecode = (className: ClassName, checksum: number, jarName: string, classData: ArrayBufferLike[]): Promise<DecompileResult> => this.schedule(async () => {
+        let result = await this.db.results6.get([className, checksum, "bytecode", jarName, this.#version]);
         if (result) return result;
 
         try {
             const bytecode = await this.#indexer.getBytecode(classData);
-            result = { className, checksum, source: bytecode, tokens: [], language: "bytecode", version: this.#version };
+            result = { className, checksum, jarName, source: bytecode, tokens: [], language: "bytecode", version: this.#version };
         } catch (e) {
             console.error(`Error during bytecode retrieval of class '${className}':`, e);
-            result = { className, checksum, source: `// Error during bytecode retrieval: ${(e as Error).message}`, tokens: [], language: "bytecode", version: this.#version };
+            result = { className, checksum, jarName, source: `// Error during bytecode retrieval: ${(e as Error).message}`, tokens: [], language: "bytecode", version: this.#version };
         }
 
-        await this.db.results4.put(result);
+        await this.db.results6.put(result);
         return result;
     });
 }
