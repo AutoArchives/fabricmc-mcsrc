@@ -11,6 +11,7 @@ import { classNameFromDottedClassName, toClassName, type ClassName } from "../..
 export class DecompileWorker {
     #lastPromise: Promise<unknown> | undefined = undefined;
     #promiseCount = 0;
+    #preferWasmRuntime = true;
     #version: Version;
     promiseCount = () => this.#promiseCount;
 
@@ -82,6 +83,7 @@ export class DecompileWorker {
     });
 
     loadVFRuntime = (preferWasm: boolean, version: Version) => this.schedule(() => {
+        this.#preferWasmRuntime = preferWasm;
         this.#version = version;
         return vf.loadRuntime(preferWasm, this.#version);
     });
@@ -187,6 +189,8 @@ export class DecompileWorker {
         classData: DecompileData,
         logger?: (className: ClassName) => void,
     ): Promise<DecompileResult[]> {
+        await vf.loadRuntime(this.#preferWasmRuntime, this.#version);
+
         const allTokens: Record<string, Token[]> = {};
         let currentContent: string | undefined;
         let currentTokens: Token[] | undefined;
