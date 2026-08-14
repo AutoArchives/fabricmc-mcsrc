@@ -295,7 +295,9 @@ const FileList = () => {
             <Tree.DirectoryTree
                 showLine
                 motion={0}
-                switcherIcon={<CaretDownFilled />}
+                switcherIcon={({ expanded }) => (
+                    <CaretDownFilled className={expanded ? "file-tree-switcher-icon" : "file-tree-switcher-icon file-tree-switcher-icon-collapsed"} />
+                )}
                 selectedKeys={selectedKeys}
                 onSelect={onSelect}
                 treeData={treeData}

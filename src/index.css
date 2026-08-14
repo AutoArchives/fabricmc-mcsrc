@@ -96,6 +96,14 @@ html, body, #root {
     margin-inline-end: 0 !important;
 }
 
+.file-tree-switcher-icon svg {
+    transition: transform 0.3s;
+}
+
+.file-tree-switcher-icon-collapsed svg {
+    transform: rotate(-90deg);
+}
+
 /* Fix file tree icon centering */
 .ant-tree-iconEle > .anticon {
     position: absolute;
