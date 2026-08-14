@@ -22,7 +22,7 @@
     "@katana-project/zip": "^0.7.1",
     "@monaco-editor/react": "^4.7.0",
     "@xyflow/react": "^12.11.2",
-    "antd": "^6.5.4",
+    "antd": "6.3.2",
     "comlink": "^4.4.2",
     "dagre": "^0.8.5",
     "dexie": "^4.4.4",
