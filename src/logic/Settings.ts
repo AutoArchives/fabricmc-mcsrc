@@ -160,6 +160,7 @@ export const agreedEula = new BooleanSetting('eula', false);
 export const enableTabs = new BooleanSetting('enable_tabs', true);
 export const compactPackages = new BooleanSetting('compact_packages', true);
 export const autoJarIndex = new BooleanSetting('auto_jar_index', true);
+export const editorFontZoom = new NumberSetting('editor_font_zoom', 0);
 export const displayLambdas = new BooleanSetting('display_lambdas', false);
 export const bytecode = new BooleanSetting('bytecode', false);
 export const unifiedDiff = new BooleanSetting('unified_diff', false);
