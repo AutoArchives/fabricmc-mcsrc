@@ -2,14 +2,28 @@ import { List, theme } from "antd";
 import { searchResults, type SearchResult } from "../logic/JarFile";
 import { useObservable } from "../utils/UseObservable";
 import { openCodeTab } from "../logic/tabs";
-import { toClassFilePath, toClassName, withoutClassExtension } from "../utils/Names";
+import { outerClassFilePath, toClassFilePath, toClassName, withoutClassExtension } from "../utils/Names";
+import { requestTokenJump } from "./CodeExtensions";
 
 function getResultClassFilePath(item: SearchResult) {
     if (item.type === "classes") {
         return item.value;
     }
 
-    return toClassFilePath(toClassName(item.value.split(":")[0].split("$")[0]));
+    return outerClassFilePath(toClassFilePath(toClassName(item.value.split(":")[0])));
+}
+
+function openSearchResult(item: SearchResult) {
+    const classFilePath = getResultClassFilePath(item);
+
+    if (item.type !== "classes") {
+        const [, name, descriptor] = item.value.split(":");
+        const targetType = item.type === "methods" ? "method" : "field";
+        const target = targetType === "method" ? `${name}:${descriptor}` : name;
+        requestTokenJump(classFilePath, targetType, target);
+    }
+
+    openCodeTab(classFilePath);
 }
 
 function formatSearchResult(item: SearchResult, mutedColor: string) {
@@ -49,7 +63,7 @@ const SearchResults = () => {
             dataSource={results}
             renderItem={(item) => (
                 <List.Item
-                    onClick={() => openCodeTab(getResultClassFilePath(item))}
+                    onClick={() => openSearchResult(item)}
                     style={{
                         cursor: "pointer",
                         padding: "2px 8px",
