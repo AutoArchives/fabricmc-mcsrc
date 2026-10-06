@@ -70,6 +70,36 @@ describe('Search Algorithm', () => {
         });
     });
 
+    describe('Multiple Terms', () => {
+        const classes = [
+            'com/example/BiomePacket',
+            'com/example/PacketBiome',
+            'com/example/BiomeUpdatePacket',
+            'com/example/Biome',
+            'com/example/Packet',
+            'com/biome/PacketHandler',
+        ];
+
+        it('should require every term in the simple class name, regardless of order or case', () => {
+            const expected = classes.slice(0, 3);
+            expect(performSearch('BIOME packet', classes)).toEqual(expect.arrayContaining(expected));
+            expect(performSearch('BIOME packet', classes)).toHaveLength(3);
+            expect(performSearch('packet biome', classes)).toEqual(performSearch('biome packet', classes));
+        });
+
+        it('should ignore surrounding and repeated whitespace', () => {
+            expect(performSearch('  biome \t packet  ', classes)).toEqual(performSearch('biome packet', classes));
+        });
+
+        it('should allow CamelCase matching for each term', () => {
+            expect(performSearch('bup packet', classes)).toEqual(['com/example/BiomeUpdatePacket']);
+        });
+
+        it('should return no results for whitespace', () => {
+            expect(performSearch('   \t ', classes)).toEqual([]);
+        });
+    });
+
     describe('Scoring Priority', () => {
         it('should order results by match quality', () => {
             const classes = [
