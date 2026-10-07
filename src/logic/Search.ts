@@ -7,6 +7,20 @@ export function matchesCamelCase(className: string, query: string): boolean {
     return acronym.toLowerCase().startsWith(query.toLowerCase());
 }
 
+function matchesCamelCasePrefixes(className: string, query: string): boolean {
+    const queryWords = query.match(/[A-Z][^A-Z]*/g);
+    if (!queryWords || queryWords.join('') !== query) {
+        return false;
+    }
+
+    const classWords = className.match(/[A-Z][^A-Z]*/g) ?? [];
+    if (queryWords.length > classWords.length) {
+        return false;
+    }
+
+    return queryWords.every((word, index) => classWords[index].startsWith(word));
+}
+
 function getMatchScore(simpleClassName: string, query: string): number | undefined {
     const lowerName = simpleClassName.toLowerCase();
     const lowerQuery = query.toLowerCase();
@@ -23,10 +37,13 @@ function getMatchScore(simpleClassName: string, query: string): number | undefin
     if (matchesCamelCase(simpleClassName, query)) {
         return 3;
     }
+    if (matchesCamelCasePrefixes(simpleClassName, query)) {
+        return 4;
+    }
 
     const position = lowerName.indexOf(lowerQuery);
     if (position !== -1) {
-        return 4 + position;
+        return 5 + position;
     }
     return undefined;
 }

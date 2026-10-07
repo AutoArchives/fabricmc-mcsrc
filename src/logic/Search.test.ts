@@ -29,6 +29,46 @@ describe('Search Algorithm', () => {
     });
 
     describe('CamelCase Matching', () => {
+        it('should match prefixes of consecutive CamelCase words', () => {
+            const classes = ['com/example/DataComponents'];
+
+            expect(performSearch('DComp', classes)).toEqual(classes);
+            expect(performSearch('DaCo', classes)).toEqual(classes);
+            expect(performSearch('DataComp', classes)).toEqual(classes);
+        });
+
+        it('should require matching case for CamelCase word prefixes', () => {
+            const classes = ['com/example/DataComponents'];
+
+            expect(performSearch('dcomp', classes)).toEqual([]);
+            expect(performSearch('Dcomp', classes)).toEqual([]);
+            expect(performSearch('dComp', classes)).toEqual([]);
+        });
+
+        it('should not skip or reorder CamelCase words', () => {
+            const classes = ['com/example/BlockEntityRenderProvider'];
+
+            expect(performSearch('BEntRen', classes)).toEqual(classes);
+            expect(performSearch('BEntPro', classes)).toEqual([]);
+            expect(performSearch('EntB', classes)).toEqual([]);
+        });
+
+        it('should rank word prefixes below name prefixes and above substrings', () => {
+            const classes = [
+                'com/example/SomeDComp',
+                'com/example/DataComponents',
+                'com/example/DComponent',
+                'com/example/DComp',
+            ];
+
+            expect(performSearch('DComp', classes)).toEqual([
+                'com/example/DComp',
+                'com/example/DComponent',
+                'com/example/DataComponents',
+                'com/example/SomeDComp',
+            ]);
+        });
+
         it('should match CamelCase acronyms', () => {
             const classes = [
                 'net/minecraft/server/MinecraftServer',
