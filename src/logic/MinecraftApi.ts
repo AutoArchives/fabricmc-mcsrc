@@ -1,4 +1,7 @@
-import { BehaviorSubject, combineLatest, distinctUntilChanged, filter, from, map, shareReplay, switchMap, tap, Observable } from "rxjs";
+import {
+    BehaviorSubject, catchError, combineLatest, concatMap, defer, distinctUntilChanged, EMPTY,
+    filter, finalize, from, map, Observable, shareReplay, Subject, switchMap, tap, type Subscriber
+} from "rxjs";
 import { fromFetch } from "rxjs/fetch";
 import { agreedEula } from "./Settings";
 import { openJar, type Jar } from "../utils/Jar";
@@ -84,8 +87,58 @@ export const minecraftVersionIds = minecraftVersions.pipe(
     map(versions => versions.map(v => v.id))
 );
 
-export const downloadProgress = new BehaviorSubject<number | undefined>(undefined);
-export const remapProgress = new BehaviorSubject<number | undefined>(undefined);
+export interface MinecraftLoadProgress {
+    version: string;
+    stage: "downloading" | "remapping" | "opening";
+    percent: number;
+}
+
+export const minecraftLoadProgress = new BehaviorSubject<MinecraftLoadProgress | undefined>(undefined);
+export const queuedMinecraftVersions = new BehaviorSubject<string[]>([]);
+
+interface MinecraftLoadRequest {
+    version: VersionListEntry;
+    subscriber: Subscriber<MinecraftJar>;
+}
+
+const minecraftLoadRequests = new Subject<MinecraftLoadRequest>();
+const pendingMinecraftLoads = new Set<MinecraftLoadRequest>();
+
+function updateQueuedVersions() {
+    queuedMinecraftVersions.next(Array.from(pendingMinecraftLoads, request => request.version.id));
+}
+
+function removePendingLoad(request: MinecraftLoadRequest) {
+    if (pendingMinecraftLoads.delete(request)) {
+        updateQueuedVersions();
+    }
+}
+
+minecraftLoadRequests.pipe(
+    concatMap(request => {
+        removePendingLoad(request);
+        if (request.subscriber.closed) {
+            return EMPTY;
+        }
+
+        // Keep the queue subscribed until the promise settles, even if the selected version changes.
+        return defer(() => downloadMinecraftJar(request.version)).pipe(
+            tap(request.subscriber),
+            catchError(() => EMPTY),
+            finalize(() => minecraftLoadProgress.next(undefined))
+        );
+    })
+).subscribe();
+
+function queueMinecraftJar(version: VersionListEntry): Observable<MinecraftJar> {
+    return new Observable(subscriber => {
+        const request = { version, subscriber };
+        pendingMinecraftLoads.add(request);
+        updateQueuedVersions();
+        minecraftLoadRequests.next(request);
+        return () => removePendingLoad(request);
+    });
+}
 
 export const REMAPPED_JAR_CACHE_VERSION = 7;
 
@@ -101,7 +154,7 @@ export function minecraftJarPipeline(source$: Observable<string | null>): Observ
         map(([version, versions]) => versions.find(v => v.id === version)),
         filter((version) => version !== undefined),
         tap((version) => console.log(`Opening Minecraft jar ${version.id}`)),
-        switchMap(version => from(downloadMinecraftJar(version, downloadProgress))),
+        switchMap(version => queueMinecraftJar(version)),
         shareReplay({ bufferSize: 1, refCount: false })
     );
 }
@@ -189,16 +242,8 @@ async function fetchVersionManifest(version: VersionListEntry): Promise<VersionM
 }
 
 async function cachedFetch(url: string, onProgress?: (percent: number) => void): Promise<Blob> {
-    if (!('caches' in window)) {
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch ${url}: ${response.statusText}`);
-        }
-        return await consumeResponseWithProgress(response, onProgress);
-    }
-
-    const cache = await caches.open(CACHE_NAME);
-    const cachedResponse = await cache.match(url);
+    const cache = 'caches' in window ? await caches.open(CACHE_NAME) : null;
+    const cachedResponse = await cache?.match(url);
     if (cachedResponse) {
         return await cachedResponse.blob();
     }
@@ -211,7 +256,7 @@ async function cachedFetch(url: string, onProgress?: (percent: number) => void):
     const blob = await consumeResponseWithProgress(response, onProgress);
 
     // Cache the blob after it's been consumed
-    await cache.put(url, new Response(blob, {
+    await cache?.put(url, new Response(blob, {
         headers: response.headers
     }));
 
@@ -238,38 +283,27 @@ async function consumeResponseWithProgress(response: Response, onProgress?: (per
         chunks.push(value);
         receivedLength += value.length;
 
-        const percent = Math.round((receivedLength / total) * 100);
+        const percent = Math.min((receivedLength / total) * 100, 100);
 
-        if (percent !== lastPercent) {
+        const roundedPercent = Math.floor(percent);
+        if (roundedPercent !== lastPercent) {
             onProgress(percent);
-            lastPercent = percent;
+            lastPercent = roundedPercent;
         }
     }
 
     return new Blob(chunks);
 }
 
-async function downloadMinecraftJar(version: VersionListEntry, progress: BehaviorSubject<number | undefined>): Promise<MinecraftJar> {
+async function downloadMinecraftJar(version: VersionListEntry): Promise<MinecraftJar> {
+    minecraftLoadProgress.next({ version: version.id, stage: "downloading", percent: 0 });
     console.log(`Downloading Minecraft jar for version: ${version.id}`);
     const versionManifest = await fetchVersionManifest(version);
     const client = versionManifest.downloads.client;
     const mappings = versionManifest.downloads.client_mappings;
 
-    let rawBlob: Blob;
-    let mappingsBlob: Blob | null;
-
-    try {
-        [rawBlob, mappingsBlob] = await Promise.all([
-            cachedFetch(client.url, (percent) => {
-                progress.next(percent);
-            }),
-            mappings ? cachedFetch(mappings.url) : Promise.resolve(null)
-        ]);
-    } finally {
-        progress.next(undefined);
-    }
-
-    const { blob, remapped } = await prepareMinecraftJarBlob(version.id, rawBlob, client, mappingsBlob, mappings);
+    const { blob, remapped } = await prepareMinecraftJarBlob(version.id, client, mappings);
+    minecraftLoadProgress.next({ version: version.id, stage: "opening", percent: 100 });
     const jar = await openJar(version.id, blob);
     return {
         version: version.id,
@@ -285,37 +319,50 @@ async function downloadMinecraftJar(version: VersionListEntry, progress: Behavio
 
 async function prepareMinecraftJarBlob(
     version: string,
-    rawBlob: Blob,
     client: VersionDownload,
-    mappingsBlob: Blob | null,
     mappings?: VersionDownload,
 ): Promise<{ blob: Blob, remapped: boolean; }> {
-    if (!mappings || !mappingsBlob) {
-        return { blob: rawBlob, remapped: false };
-    }
-
-    const cacheKey = getRemappedJarCacheKey(version, client, mappings);
-    const cache = 'caches' in window ? await caches.open(CACHE_NAME) : null;
-    const cachedResponse = await cache?.match(cacheKey);
+    const cacheKey = mappings ? getRemappedJarCacheKey(version, client, mappings) : null;
+    const cache = cacheKey && 'caches' in window ? await caches.open(CACHE_NAME) : null;
+    const cachedResponse = cacheKey ? await cache?.match(cacheKey) : undefined;
 
     if (cachedResponse) {
         return { blob: await cachedResponse.blob(), remapped: true };
     }
 
-    try {
-        remapProgress.next(0);
-        const blob = await remapMinecraftJar(version, rawBlob, mappingsBlob, percent => {
-            remapProgress.next(percent);
-        });
+    const [clientResult, mappingsResult] = await Promise.allSettled([
+        cachedFetch(client.url, percent => {
+            minecraftLoadProgress.next({ version, stage: "downloading", percent });
+        }),
+        mappings ? cachedFetch(mappings.url) : Promise.resolve(null)
+    ]);
 
-        try {
-            await cache?.put(cacheKey, new Response(blob));
-        } catch (error) {
-            console.warn(`Failed to cache remapped jar for ${version}`, error);
-        }
-
-        return { blob, remapped: true };
-    } finally {
-        remapProgress.next(undefined);
+    // Both requests must settle before releasing the queue, including on download failure.
+    if (clientResult.status === "rejected") {
+        throw clientResult.reason;
     }
+    if (mappingsResult.status === "rejected") {
+        throw mappingsResult.reason;
+    }
+
+    const rawBlob = clientResult.value;
+    const mappingsBlob = mappingsResult.value;
+    if (!mappingsBlob) {
+        return { blob: rawBlob, remapped: false };
+    }
+
+    minecraftLoadProgress.next({ version, stage: "remapping", percent: 0 });
+    const blob = await remapMinecraftJar(version, rawBlob, mappingsBlob, percent => {
+        minecraftLoadProgress.next({ version, stage: "remapping", percent });
+    });
+
+    try {
+        if (cacheKey) {
+            await cache?.put(cacheKey, new Response(blob));
+        }
+    } catch (error) {
+        console.warn(`Failed to cache remapped jar for ${version}`, error);
+    }
+
+    return { blob, remapped: true };
 }
