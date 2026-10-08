@@ -27,6 +27,11 @@ export const referenceResults = jarIndex.pipe(
     switchMap(index => combineLatest([referencesQuery, includeMethodHierarchy.observable, hierarchyNavigation]).pipe(
         map(([query, includeHierarchy, navigation]): ReferenceKey[] => {
             if (!query) return [];
+            if (getQueryType(query) === 'field' && navigation?.jarName === index.minecraftJar.jar.name) {
+                const [owner, name, descriptor] = query.split(':');
+                const accessor = navigation.index.recordAccessor(toClassName(owner), name, descriptor);
+                if (accessor) return [query, accessor];
+            }
             if (includeHierarchy && getQueryType(query) === 'method') {
                 if (!navigation || navigation.jarName !== index.minecraftJar.jar.name) return [];
                 const [owner, name, descriptor] = query.split(':');

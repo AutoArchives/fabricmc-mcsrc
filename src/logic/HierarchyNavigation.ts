@@ -2,7 +2,7 @@ import type { ClassData } from '../workers/jar-index/client';
 import type { MemberData, Method } from '../workers/jar-index/types';
 import type { ClassName } from '../utils/Names';
 import type { Token } from './Tokens';
-import { isAbstract, isInterface } from '../utils/Classfile';
+import { isAbstract, isInterface, isRecord } from '../utils/Classfile';
 
 const PRIVATE = 0x0002;
 const STATIC = 0x0008;
@@ -146,6 +146,12 @@ export class HierarchyNavigation {
 
     getClassData(className: ClassName): ClassData | undefined {
         return this.classes.get(className);
+    }
+
+    recordAccessor(className: ClassName, name: string, descriptor: string): Method | undefined {
+        if (!isRecord(this.classes.get(className)?.accessFlags ?? 0)) return undefined;
+        const accessor: Method = `${className}:${name}:()${descriptor}`;
+        return this.declaredMethods.get(className)?.has(accessor) ? accessor : undefined;
     }
 
     isInterfaceClass(className: ClassName): boolean {
