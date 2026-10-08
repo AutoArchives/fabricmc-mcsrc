@@ -27,10 +27,10 @@ function names(targets: { className: string }[]): string[] {
 const classes = [classData('Parent'), classData('Other'), classData('Child', ['Parent', 'Other']), classData('Grandchild', ['Child'])];
 
 describe('Hierarchy navigation', () => {
-    it('links direct supertypes and subtypes in both directions', () => {
-        const index = new HierarchyNavigation(classes, []);
-        expect(names(index.relations(declaration('Child')).parents)).toEqual(['Parent', 'Other']);
-        expect(names(index.relations(declaration('Parent')).children)).toEqual(['Child']);
+    it('links all supertypes and subtypes without duplicates through diamonds', () => {
+        const index = new HierarchyNavigation([...classes, classData('Diamond', ['Child', 'Parent'])], []);
+        expect(names(index.relations(declaration('Diamond')).parents)).toEqual(['Child', 'Other', 'Parent']);
+        expect(names(index.relations(declaration('Parent')).children)).toEqual(['Child', 'Diamond', 'Grandchild']);
     });
 
     it('finds ancestor declarations and all descendant overrides through diamonds', () => {

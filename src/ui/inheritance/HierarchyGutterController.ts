@@ -8,10 +8,11 @@ import { requestTokenJump } from '../CodeExtensions';
 
 export interface GutterAction {
     line: number;
-    direction: 'parents' | 'children';
+    direction: 'parents' | 'children' | 'both';
     title: string;
-    icon: 'overridingMethod' | 'overridenMethod' | 'implementingMethod' | 'implementedMethod';
+    icon: 'overridingMethod' | 'overridenMethod' | 'implementingMethod' | 'implementedMethod' | 'overridingAndOverriddenMethod';
     targets: HierarchyTarget[];
+    parentTargets?: HierarchyTarget[];
 }
 
 export interface PopupPosition {
@@ -52,6 +53,7 @@ export function installHierarchyGutter(options: HierarchyGutterOptions) {
 
 function installModelGutter({ codeEditor, result, navigation, showIcons, onChoose }: HierarchyGutterOptions) {
     const actions: GutterAction[] = [];
+    const markers: GutterAction[] = [];
     const model = codeEditor.getModel();
     if (!model || model.getValue() !== result.source) return () => {};
     const decorations = codeEditor.createDecorationsCollection();
@@ -60,6 +62,7 @@ function installModelGutter({ codeEditor, result, navigation, showIcons, onChoos
         if (!token.declaration || (token.type !== 'class' && token.type !== 'method')) continue;
         const relations = navigation.relations(token);
         const line = model.getPositionAt(token.start).lineNumber;
+        const declarationActions: GutterAction[] = [];
         for (const direction of ['parents', 'children'] as const) {
             const targets = relations[direction];
             if (targets.length === 0) continue;
@@ -88,15 +91,28 @@ function installModelGutter({ codeEditor, result, navigation, showIcons, onChoos
             } else {
                 continue;
             }
-            actions.push({ line, direction, title, icon, targets });
+            declarationActions.push({ line, direction, title, icon, targets });
+        }
+        actions.push(...declarationActions);
+        if (declarationActions.length === 2) {
+            markers.push({
+                line,
+                direction: 'both',
+                title: token.type === 'class' ? 'Go to supertype or subclass / implementation' : 'Go to super or overriding method',
+                icon: 'overridingAndOverriddenMethod',
+                targets: [...relations.parents, ...relations.children],
+                parentTargets: relations.parents,
+            });
+        } else {
+            markers.push(...declarationActions);
         }
     }
-    decorations.set(showIcons ? actions.map(action => ({
+    decorations.set(showIcons ? markers.map(action => ({
         range: new Range(action.line, 1, action.line, 1),
         options: {
             glyphMarginClassName: `hierarchy-glyph hierarchy-${action.direction} hierarchy-icon-${action.icon}`,
             glyphMargin: {
-                position: action.direction === 'parents' ? editor.GlyphMarginLane.Left : editor.GlyphMarginLane.Right,
+                position: editor.GlyphMarginLane.Center,
             },
             glyphMarginHoverMessage: { value: `${action.title} (${action.targets.length})` },
         },
@@ -117,15 +133,22 @@ function installModelGutter({ codeEditor, result, navigation, showIcons, onChoos
     }
 
     function findAction(line: number | undefined, direction: GutterAction['direction']): GutterAction | undefined {
-        const matches = actions.filter(action => action.line === line && action.direction === direction);
+        const source = direction === 'both' ? markers : actions;
+        const matches = source.filter(action => action.line === line && action.direction === direction);
         if (matches.length === 0) return undefined;
-        return { ...matches[0], targets: matches.flatMap(action => action.targets) };
+        return {
+            ...matches[0],
+            targets: matches.flatMap(action => action.targets),
+            parentTargets: direction === 'both' ? matches.flatMap(action => action.parentTargets ?? []) : undefined,
+        };
     }
 
     const mouse = codeEditor.onMouseDown(event => {
         if (!showIcons || event.target.type !== editor.MouseTargetType.GUTTER_GLYPH_MARGIN || !event.event.leftButton) return;
-        const direction = event.target.detail.glyphMarginLane === editor.GlyphMarginLane.Left ? 'parents' : 'children';
-        const action = findAction(event.target.position?.lineNumber, direction);
+        const line = event.target.position?.lineNumber;
+        const marker = markers.find(action => action.line === line);
+        if (!marker) return;
+        const action = findAction(line, marker.direction);
         if (!action) return;
         event.event.preventDefault();
         event.event.stopPropagation();

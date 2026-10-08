@@ -48,7 +48,7 @@ function getMatchScore(simpleClassName: string, query: string): number | undefin
     return undefined;
 }
 
-export function performSearch<T extends string>(query: string, classes: T[], getSearchText: (item: T) => string = item => item): T[] {
+export function performSearch<T>(query: string, classes: T[], getSearchText: (item: T) => string = item => String(item)): T[] {
     const terms = query.match(/\S+/g) ?? [];
     if (terms.length === 0) {
         return [];

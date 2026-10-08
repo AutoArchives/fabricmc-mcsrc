@@ -97,6 +97,18 @@ export class HierarchyNavigation {
         return ancestors;
     }
 
+    private descendantNames(className: ClassName): Set<ClassName> {
+        const descendants = new Set<ClassName>();
+        const pending = [...this.children.get(className) ?? []];
+        while (pending.length > 0) {
+            const child = pending.pop()!;
+            if (child === className || descendants.has(child)) continue;
+            descendants.add(child);
+            pending.push(...this.children.get(child) ?? []);
+        }
+        return descendants;
+    }
+
     private overrides(child: MethodDeclaration, parent: MethodDeclaration): boolean {
         if (child.name !== parent.name || (parent.access & FINAL) !== 0) return false;
         if ((parent.access & PUBLIC_OR_PROTECTED) === 0) {
@@ -130,6 +142,10 @@ export class HierarchyNavigation {
             `${candidate.className}:${candidate.name}:${candidate.descriptor}` === target
             && (candidate.access & (BRIDGE | SYNTHETIC)) === 0
         );
+    }
+
+    getClassData(className: ClassName): ClassData | undefined {
+        return this.classes.get(className);
     }
 
     isInterfaceClass(className: ClassName): boolean {
@@ -206,8 +222,8 @@ export class HierarchyNavigation {
         if (!token.declaration) return { parents: [], children: [] };
         if (token.type === 'class') {
             return {
-                parents: this.parentNames(token.className).map(className => ({ className, type: 'class' })),
-                children: (this.children.get(token.className) ?? []).map(className => ({ className, type: 'class' }))
+                parents: this.uniqueTargets([...this.ancestorNames(token.className)].map(className => ({ className, type: 'class' }))),
+                children: this.uniqueTargets([...this.descendantNames(token.className)].map(className => ({ className, type: 'class' }))),
             };
         }
         if (token.type !== 'method') return { parents: [], children: [] };

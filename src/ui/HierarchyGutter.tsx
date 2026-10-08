@@ -26,10 +26,11 @@ export function HierarchyGutter({ codeEditor, result }: {
         return installHierarchyGutter({ codeEditor, result, navigation: navigation.index, showIcons, onChoose: setChooser });
     }, [codeEditor, result, navigation, showIcons]);
 
-    if (!chooser) return null;
+    if (!chooser || !navigation) return null;
     return <HierarchyTargetPopup
         key={`${chooser.line}:${chooser.direction}:${chooser.position.x}:${chooser.position.y}`}
         chooser={chooser}
+        navigation={navigation.index}
         codeEditor={codeEditor}
         onClose={closeChooser}
     />;

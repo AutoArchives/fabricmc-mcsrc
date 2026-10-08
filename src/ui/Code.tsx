@@ -378,6 +378,7 @@ const Code = () => {
                     tabSize: 3,
                     minimap: { enabled: !hideMinimap },
                     glyphMargin: true,
+                    lineNumbersMinChars: 3,
                     foldingImportsByDefault: true,
                     foldingHighlight: false,
                     scrollBeyondLastLine: false,
