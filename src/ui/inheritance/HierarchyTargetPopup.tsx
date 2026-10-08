@@ -17,7 +17,7 @@ function HierarchyTargetIcon({ target, navigation }: { target: HierarchyTarget; 
     const abstractMethod = navigation.isAbstractDeclaration(target);
     const interfaceMethod = navigation.isInterfaceClass(target.className);
     const label = `${abstractMethod ? 'Abstract' : 'Concrete'} ${interfaceMethod ? 'interface method' : 'method'}`;
-    return <span className="hierarchy-method-icon" role="img" aria-label={label} title={label}>
+    return <span className="hierarchy-method-icon" title={label}>
         {interfaceMethod && <InterfaceIcon />}
         {abstractMethod ? <MethodAbstractIcon /> : <MethodIcon />}
     </span>;
@@ -166,7 +166,7 @@ export function HierarchyTargetPopup({ chooser, navigation, codeEditor, onClose 
                         key={`${target.className}:${target.name}:${target.descriptor}`}
                         onClick={() => selectTarget(target)}
                     >
-                        <HierarchyTargetIcon target={target} navigation={navigation} />
+                        <span aria-hidden="true"><HierarchyTargetIcon target={target} navigation={navigation} /></span>
                         <span>{targetLabel(target)}</span>
                     </Button>)}
                 </div>)}
