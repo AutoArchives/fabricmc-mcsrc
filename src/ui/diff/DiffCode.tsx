@@ -73,24 +73,9 @@ const DiffCode = () => {
     }, [resultsReady]);
 
     function handleOnEditorMount(editor: editor.IStandaloneDiffEditor) {
-        const checkEditors = () => {
-            const original = editor.getOriginalEditor();
-            const modified = editor.getModifiedEditor();
-            if (original && modified) {
-                setOriginalEditor(original);
-                setModifiedEditor(modified);
-                setEditorsReady(true);
-
-                return true;
-            }
-            return false;
-        };
-
-        const interval = setInterval(() => {
-            if (checkEditors()) {
-                clearInterval(interval);
-            }
-        }, 100);
+        setOriginalEditor(editor.getOriginalEditor());
+        setModifiedEditor(editor.getModifiedEditor());
+        setEditorsReady(true);
     }
 
     useEffect(() => {
@@ -147,8 +132,8 @@ const DiffCode = () => {
 
     // Scroll to top when source changes, or to specific line if specified
     useEffect(() => {
-        if (editorRef.current && leftResult && rightResult) {
-            const editor = editorRef.current;
+        if (diffEditor && resultsReady) {
+            const editor = diffEditor;
             lineHighlightRef.current?.clear();
 
             const getActiveSelectionEditor = (editor: editor.IStandaloneDiffEditor) => {
@@ -178,7 +163,7 @@ const DiffCode = () => {
                 executeScroll();
             });
         }
-    }, [leftResult, rightResult, selectedLine, selectionSide]);
+    }, [diffEditor, leftResult, rightResult, selectedLine, selectionSide, resultsReady]);
 
     // Handle gutter clicks for line linking
     useEffect(() => {
