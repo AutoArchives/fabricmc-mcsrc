@@ -4,11 +4,14 @@ import {
 } from "rxjs";
 import { fromFetch } from "rxjs/fetch";
 import { agreedEula } from "./Settings";
-import { openJar, type Jar } from "../utils/Jar";
+import { consumeResponseWithProgress, HttpStreamReader, openJar, type Jar } from "../utils/Jar";
+import { read } from "@katana-project/zip";
 import { selectedMinecraftVersion } from "./State";
 import { remapMinecraftJar } from "../workers/remap/client";
 
 import EXPERIMENTAL_VERSIONS from "./experimental_versions.json";
+import { unwrapServerJar } from "../utils/ServerJar";
+import { minecraftJarSide } from "../SiteConfig";
 
 const CACHE_NAME = 'mcsrc-v1';
 const VERSIONS_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
@@ -41,8 +44,10 @@ export interface VersionListEntry {
 interface VersionManifest {
     id: string;
     downloads: {
-        client: VersionDownload;
+        client?: VersionDownload;
+        server?: VersionDownload;
         client_mappings?: VersionDownload;
+        server_mappings?: VersionDownload;
         [key: string]: VersionDownload | undefined;
     };
 }
@@ -60,7 +65,7 @@ export interface MinecraftJar {
 }
 
 export interface MinecraftJarMetadata {
-    clientSha1?: string;
+    jarSha1?: string;
     mappingsSha1?: string;
     remapped: boolean;
 }
@@ -231,10 +236,10 @@ function isSupported(version: VersionListEntry): boolean {
     return false;
 }
 
-export function getRemappedJarCacheKey(version: string, client: VersionDownload, mappings: VersionDownload): string {
-    const clientKey = client.sha1 ?? encodeURIComponent(client.url);
+export function getRemappedJarCacheKey(version: string, download: VersionDownload, mappings: VersionDownload): string {
+    const jarKey = download.sha1 ?? encodeURIComponent(download.url);
     const mappingsKey = mappings.sha1 ?? encodeURIComponent(mappings.url);
-    return `https://mcsrc.dev/cache/remapped-jars/v${REMAPPED_JAR_CACHE_VERSION}/${version}/${clientKey}/${mappingsKey}.jar`;
+    return `https://mcsrc.dev/cache/remapped-jars/v${REMAPPED_JAR_CACHE_VERSION}/${version}/${jarKey}/${mappingsKey}.jar`;
 }
 
 async function fetchVersionManifest(version: VersionListEntry): Promise<VersionManifest> {
@@ -263,55 +268,54 @@ async function cachedFetch(url: string, onProgress?: (percent: number) => void):
     return blob;
 }
 
-async function consumeResponseWithProgress(response: Response, onProgress?: (percent: number) => void): Promise<Blob> {
-    const contentLength = response.headers.get('content-length');
-    const total = contentLength ? parseInt(contentLength, 10) : 0;
-
-    if (!response.body || total === 0 || !onProgress) {
-        return await response.blob();
+async function fetchServerJar(download: VersionDownload, onProgress: (percent: number) => void): Promise<Blob> {
+    const cacheKey = `https://mcsrc.dev/cache/server-jars/v1/${download.sha1 ?? encodeURIComponent(download.url)}.jar`;
+    const cache = 'caches' in window ? await caches.open(CACHE_NAME) : null;
+    const cached = await cache?.match(cacheKey);
+    if (cached) {
+        return cached.blob();
     }
 
-    const reader = response.body.getReader();
-    const chunks: Uint8Array<ArrayBuffer>[] = [];
-    let receivedLength = 0;
-    let lastPercent = -1;
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        chunks.push(value);
-        receivedLength += value.length;
-
-        const percent = Math.min((receivedLength / total) * 100, 100);
-
-        const roundedPercent = Math.floor(percent);
-        if (roundedPercent !== lastPercent) {
-            onProgress(percent);
-            lastPercent = roundedPercent;
+    let blob: Blob | undefined;
+    try {
+        const bundle = await read(new HttpStreamReader(download.url, onProgress));
+        const nestedJar = bundle.entries.find(entry => entry.name.startsWith("META-INF/versions/") && entry.name.endsWith(".jar"));
+        if (nestedJar) {
+            blob = await nestedJar.blob();
         }
+    } catch (error) {
+        console.warn("Server jar range download failed, falling back to a full download", error);
     }
 
-    return new Blob(chunks);
+    if (!blob) {
+        blob = await unwrapServerJar(await cachedFetch(download.url, onProgress));
+    }
+    await cache?.put(cacheKey, new Response(blob));
+    return blob;
 }
 
 async function downloadMinecraftJar(version: VersionListEntry): Promise<MinecraftJar> {
     minecraftLoadProgress.next({ version: version.id, stage: "downloading", percent: 0 });
     console.log(`Downloading Minecraft jar for version: ${version.id}`);
     const versionManifest = await fetchVersionManifest(version);
-    const client = versionManifest.downloads.client;
-    const mappings = versionManifest.downloads.client_mappings;
+    const download = versionManifest.downloads[minecraftJarSide];
+    const mappings = versionManifest.downloads[`${minecraftJarSide}_mappings`];
 
-    const { blob, remapped } = await prepareMinecraftJarBlob(version.id, client, mappings);
+    if (!download) {
+        throw new Error(`No ${minecraftJarSide} jar available for Minecraft ${version.id}`);
+    }
+
+    const { blob, remapped } = await prepareMinecraftJarBlob(version.id, download, mappings);
     minecraftLoadProgress.next({ version: version.id, stage: "opening", percent: 100 });
-    const jar = await openJar(version.id, blob);
+    const jarName = minecraftJarSide === 'server' ? `${version.id}-server` : version.id;
+    const jar = await openJar(jarName, blob);
     return {
         version: version.id,
         jar,
         blob,
         metadata: {
-            clientSha1: client.sha1,
-            mappingsSha1: versionManifest.downloads.client_mappings?.sha1,
+            jarSha1: download.sha1,
+            mappingsSha1: mappings?.sha1,
             remapped,
         },
     };
@@ -319,10 +323,10 @@ async function downloadMinecraftJar(version: VersionListEntry): Promise<Minecraf
 
 async function prepareMinecraftJarBlob(
     version: string,
-    client: VersionDownload,
+    download: VersionDownload,
     mappings?: VersionDownload,
 ): Promise<{ blob: Blob, remapped: boolean; }> {
-    const cacheKey = mappings ? getRemappedJarCacheKey(version, client, mappings) : null;
+    const cacheKey = mappings ? getRemappedJarCacheKey(version, download, mappings) : null;
     const cache = cacheKey && 'caches' in window ? await caches.open(CACHE_NAME) : null;
     const cachedResponse = cacheKey ? await cache?.match(cacheKey) : undefined;
 
@@ -330,22 +334,23 @@ async function prepareMinecraftJarBlob(
         return { blob: await cachedResponse.blob(), remapped: true };
     }
 
-    const [clientResult, mappingsResult] = await Promise.allSettled([
-        cachedFetch(client.url, percent => {
-            minecraftLoadProgress.next({ version, stage: "downloading", percent });
-        }),
+    const onProgress = (percent: number) => {
+        minecraftLoadProgress.next({ version, stage: "downloading", percent });
+    };
+    const [jarResult, mappingsResult] = await Promise.allSettled([
+        minecraftJarSide === 'server' ? fetchServerJar(download, onProgress) : cachedFetch(download.url, onProgress),
         mappings ? cachedFetch(mappings.url) : Promise.resolve(null)
     ]);
 
     // Both requests must settle before releasing the queue, including on download failure.
-    if (clientResult.status === "rejected") {
-        throw clientResult.reason;
+    if (jarResult.status === "rejected") {
+        throw jarResult.reason;
     }
     if (mappingsResult.status === "rejected") {
         throw mappingsResult.reason;
     }
 
-    const rawBlob = clientResult.value;
+    const rawBlob = jarResult.value;
     const mappingsBlob = mappingsResult.value;
     if (!mappingsBlob) {
         return { blob: rawBlob, remapped: false };
