@@ -5,7 +5,6 @@ import { combineLatest, map, of, switchMap } from "rxjs";
 import { selectedFile, diffView } from "../logic/State";
 import { DecompilerVersionWarning } from "./DecompilerVersionWarning";
 import { withoutClassExtension } from "../utils/Names";
-import { ClientOnlyClassWarning } from "./ClientOnlyClassWarning";
 
 const changeInfoObs = diffView.pipe(
     switchMap(isDiff => {
@@ -65,10 +64,7 @@ export const FilepathHeader = () => {
                     </div>
                 )}
             </div>
-            <div style={{ display: "flex", alignItems: "center" }}>
-                <ClientOnlyClassWarning />
-                <DecompilerVersionWarning />
-            </div>
+            <DecompilerVersionWarning />
         </div>
     );
 };

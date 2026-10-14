@@ -161,7 +161,6 @@ export const enableTabs = new BooleanSetting('enable_tabs', true);
 export const showInheritanceIcons = new BooleanSetting('show_inheritance_icons', true);
 export const includeMethodHierarchy = new BooleanSetting('include_method_hierarchy', true);
 export const compactPackages = new BooleanSetting('compact_packages', true);
-export const downloadServerJar = new BooleanSetting('download_server_jar', false);
 export const autoJarIndex = new BooleanSetting('auto_jar_index', true);
 export const editorFontZoom = new NumberSetting('editor_font_zoom', 0);
 export const displayLambdas = new BooleanSetting('display_lambdas', false);

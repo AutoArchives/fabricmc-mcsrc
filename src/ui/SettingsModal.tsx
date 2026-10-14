@@ -2,7 +2,7 @@ import { Button, Flex, Modal, type CheckboxProps, Form, Tooltip, InputNumber, ty
 import { SettingOutlined, SunOutlined, MoonOutlined, DesktopOutlined, JavaOutlined, FileTextOutlined } from '@ant-design/icons';
 import { Checkbox } from 'antd';
 import { useObservable } from "../utils/UseObservable";
-import { BooleanSetting, enableTabs, displayLambdas, focusSearch, KeybindSetting, type KeybindValue, bytecode, showStructure, NumberSetting, preferWasmDecompiler, compactPackages, theme, autoJarIndex, downloadServerJar, showInheritanceIcons } from "../logic/Settings";
+import { BooleanSetting, enableTabs, displayLambdas, focusSearch, KeybindSetting, type KeybindValue, bytecode, showStructure, NumberSetting, preferWasmDecompiler, compactPackages, theme, autoJarIndex, showInheritanceIcons } from "../logic/Settings";
 import { capturingKeybind, rawKeydownEvent } from "../logic/Keybinds";
 import { BehaviorSubject } from "rxjs";
 import React, { useEffect, useState } from "react";
@@ -35,7 +35,6 @@ const SettingsTab = () => {
                 <BooleanOption setting={enableTabs} title="Enable Tabs" />
                 <BooleanOption setting={showInheritanceIcons} title="Inheritance Gutter Icons" tooltip="Show gutter icons for class inheritance and method overrides." />
                 <BooleanOption setting={compactPackages} title="Compact Packages" tooltip="Collapse packages with one child into one." />
-                <BooleanOption setting={downloadServerJar} title="Download Server Jar" tooltip="Download the bundled server jar to identify client-only classes. Only supported for unobfuscated Minecraft versions. Uses more bandwidth." />
                 <BooleanOption setting={autoJarIndex} title="Auto Jar Index" tooltip="Automatically index class metadata for file icons." />
                 <BooleanOption setting={displayLambdas} title="Lambda Names" tooltip="Display lambda names as inline comments. Does not support permalinking." disabled={bytecodeValue} />
                 <BooleanOption setting={bytecode} title="Show Bytecode" tooltip="Show bytecode instructions alongside decompiled source. Does not support permalinking." disabled={displayLambdasValue} />
@@ -169,18 +168,18 @@ export interface NumberOptionProps {
     testid?: string;
 }
 
-export const NumberOption: React.FC<NumberOptionProps> = ({ setting, title, min, max, testid }) => {
+export const NumberOption: React.FC<NumberOptionProps> = ({ setting, title, min, max, testid}) => {
     const value = useObservable(setting.observable);
     const onChange: InputNumberProps<number>["onChange"] = (e) => {
         setting.value = e ?? setting.defaultValue;
-    };
+    }
 
     return (
         <Form.Item label={title}>
-            <InputNumber data-testid={testid} min={min} max={max} value={value} onChange={onChange} />
+            <InputNumber data-testid={testid} min={min} max={max} value={value} onChange={onChange}/>
         </Form.Item>
     );
-};
+}
 
 interface KeybindOptionProps {
     setting: KeybindSetting;

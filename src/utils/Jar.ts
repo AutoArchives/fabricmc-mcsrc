@@ -39,15 +39,13 @@ class JarImpl implements Jar {
     }
 }
 
-export class HttpStreamReader implements Reader {
+class HttpStreamReader implements Reader {
     private url: string;
-    private onProgress?: (percent: number) => void;
 
     private _lengthCache: number | null = null;
 
-    constructor(url: string, onProgress?: (percent: number) => void) {
+    constructor(url: string) {
         this.url = url;
-        this.onProgress = onProgress;
     }
 
     async length(): Promise<number> {
@@ -71,18 +69,14 @@ export class HttpStreamReader implements Reader {
     }
 
     async read(offset: number, size: number): Promise<Uint8Array> {
-        const blob = await this.slice(offset, size);
-        const arrayBuffer = await blob.arrayBuffer();
+        const response = await this.fetchRange(offset, size);
+        const arrayBuffer = await response.arrayBuffer();
         return new Uint8Array(arrayBuffer);
     }
 
     async slice(offset: number, size: number): Promise<Blob> {
         const response = await this.fetchRange(offset, size);
-        const blob = await consumeResponseWithProgress(response, this.onProgress);
-        if (blob.size !== size) {
-            throw new Error(`Fetched range size mismatch for ${this.url}: expected ${size}, got ${blob.size}`);
-        }
-        return blob;
+        return response.blob();
     }
 
     async fetchRange(offset: number, size: number): Promise<Response> {
@@ -93,43 +87,18 @@ export class HttpStreamReader implements Reader {
             cache: 'no-store'
         });
 
-        if (request.status !== 206) {
-            await request.body?.cancel();
+        if (!request.ok && request.status !== 206) {
             throw new Error(`Failed to fetch range ${offset}-${offset + size - 1} for ${this.url}: ${request.status} ${request.statusText}`);
+        }
+
+        // check size
+        if (request.headers.has('Content-Length')) {
+            const contentLength = parseInt(request.headers.get('Content-Length')!);
+            if (contentLength !== size) {
+                console.warn(`Fetched range size mismatch for ${this.url}: expected ${size}, got ${contentLength}`);
+            }
         }
 
         return request;
     }
-}
-
-export async function consumeResponseWithProgress(response: Response, onProgress?: (percent: number) => void): Promise<Blob> {
-    const contentLength = response.headers.get('content-length');
-    const total = contentLength ? parseInt(contentLength, 10) : 0;
-
-    if (!response.body || total === 0 || !onProgress) {
-        return await response.blob();
-    }
-
-    const reader = response.body.getReader();
-    const chunks: Uint8Array<ArrayBuffer>[] = [];
-    let receivedLength = 0;
-    let lastPercent = -1;
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        chunks.push(value);
-        receivedLength += value.length;
-
-        const percent = Math.min((receivedLength / total) * 100, 100);
-
-        const roundedPercent = Math.floor(percent);
-        if (roundedPercent !== lastPercent) {
-            onProgress(percent);
-            lastPercent = roundedPercent;
-        }
-    }
-
-    return new Blob(chunks);
 }

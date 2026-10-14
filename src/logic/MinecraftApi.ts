@@ -3,9 +3,8 @@ import {
     filter, finalize, from, map, Observable, shareReplay, Subject, switchMap, tap, type Subscriber
 } from "rxjs";
 import { fromFetch } from "rxjs/fetch";
-import { agreedEula, downloadServerJar } from "./Settings";
-import { read } from "@katana-project/zip";
-import { consumeResponseWithProgress, HttpStreamReader, openJar, type Jar } from "../utils/Jar";
+import { agreedEula } from "./Settings";
+import { openJar, type Jar } from "../utils/Jar";
 import { selectedMinecraftVersion } from "./State";
 import { remapMinecraftJar } from "../workers/remap/client";
 
@@ -15,19 +14,19 @@ const CACHE_NAME = 'mcsrc-v1';
 const VERSIONS_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 const JAVA_RUNTIMES_URL = "https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
 
-export type Json = null | boolean | number | string | Json[] | { [key: string]: Json; };
-export type Manifest = { [key: string]: Json; };
+export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
+export type Manifest = { [key: string]: Json };
 
 export interface JavaRuntime {
-    availability: { group: number; progress: number; };
-    manifest: { url: string; sha1: string; size: number; };
-    version: { name: string; released: string; };
+    availability: { group: number; progress: number };
+    manifest: { url: string; sha1: string; size: number };
+    version: { name: string; released: string };
 }
 
 export type JavaRuntimes = Record<string, Record<string, JavaRuntime[]>>;
 
 interface VersionsList {
-    versions: VersionListEntry[];
+    versions: VersionListEntry[]
 }
 
 export interface VersionListEntry {
@@ -58,7 +57,6 @@ export interface MinecraftJar {
     jar: Jar;
     blob: Blob;
     metadata: MinecraftJarMetadata;
-    serverJar?: Jar;
 }
 
 export interface MinecraftJarMetadata {
@@ -91,7 +89,7 @@ export const minecraftVersionIds = minecraftVersions.pipe(
 
 export interface MinecraftLoadProgress {
     version: string;
-    stage: "downloading" | "downloading-server" | "remapping" | "opening";
+    stage: "downloading" | "remapping" | "opening";
     percent: number;
 }
 
@@ -100,7 +98,6 @@ export const queuedMinecraftVersions = new BehaviorSubject<string[]>([]);
 
 interface MinecraftLoadRequest {
     version: VersionListEntry;
-    includeServer: boolean;
     subscriber: Subscriber<MinecraftJar>;
 }
 
@@ -125,7 +122,7 @@ minecraftLoadRequests.pipe(
         }
 
         // Keep the queue subscribed until the promise settles, even if the selected version changes.
-        return defer(() => downloadMinecraftJar(request.version, request.includeServer)).pipe(
+        return defer(() => downloadMinecraftJar(request.version)).pipe(
             tap(request.subscriber),
             catchError(() => EMPTY),
             finalize(() => minecraftLoadProgress.next(undefined))
@@ -133,9 +130,9 @@ minecraftLoadRequests.pipe(
     })
 ).subscribe();
 
-function queueMinecraftJar(version: VersionListEntry, includeServer: boolean): Observable<MinecraftJar> {
+function queueMinecraftJar(version: VersionListEntry): Observable<MinecraftJar> {
     return new Observable(subscriber => {
-        const request = { version, includeServer, subscriber };
+        const request = { version, subscriber };
         pendingMinecraftLoads.add(request);
         updateQueuedVersions();
         minecraftLoadRequests.next(request);
@@ -152,15 +149,12 @@ export function minecraftJarPipeline(source$: Observable<string | null>): Observ
             filter(id => id !== null),
             distinctUntilChanged()
         ),
-        minecraftVersions,
-        downloadServerJar.observable.pipe(distinctUntilChanged()),
+        minecraftVersions
     ]).pipe(
-        switchMap(([id, versions, includeServer]) => {
-            const version = versions.find(v => v.id === id);
-            if (!version) return EMPTY;
-            console.log(`Opening Minecraft jar ${version.id}`);
-            return queueMinecraftJar(version, includeServer);
-        }),
+        map(([version, versions]) => versions.find(v => v.id === version)),
+        filter((version) => version !== undefined),
+        tap((version) => console.log(`Opening Minecraft jar ${version.id}`)),
+        switchMap(version => queueMinecraftJar(version)),
         shareReplay({ bufferSize: 1, refCount: false })
     );
 }
@@ -226,7 +220,7 @@ export function isUnobfuscated(version: VersionListEntry): boolean {
 }
 
 function isSupported(version: VersionListEntry): boolean {
-    if (isUnobfuscated(version)) return true;
+    if(isUnobfuscated(version)) return true;
     // This version was released after the first snapshot with official mappings,
     // but its mappings were never published.
     if (version.id === '1.14_combat-3') return false;
@@ -269,21 +263,39 @@ async function cachedFetch(url: string, onProgress?: (percent: number) => void):
     return blob;
 }
 
-// Fetch and cache the nested server jar.
-async function fetchServerJar(download: VersionDownload, onProgress: (percent: number) => void): Promise<Blob> {
-    const cacheKey = `https://mcsrc.dev/cache/server-jars/v1/${download.sha1 ?? encodeURIComponent(download.url)}.jar`;
-    const cache = 'caches' in window ? await caches.open(CACHE_NAME) : null;
-    const cached = await cache?.match(cacheKey);
-    if (cached) return cached.blob();
+async function consumeResponseWithProgress(response: Response, onProgress?: (percent: number) => void): Promise<Blob> {
+    const contentLength = response.headers.get('content-length');
+    const total = contentLength ? parseInt(contentLength, 10) : 0;
 
-    const bundle = await read(new HttpStreamReader(download.url, onProgress));
-    const nestedJar = bundle.entries.find(entry => entry.name.startsWith("META-INF/versions/") && entry.name.endsWith(".jar"));
-    const blob = nestedJar ? await nestedJar.blob() : await cachedFetch(download.url, onProgress);
-    await cache?.put(cacheKey, new Response(blob));
-    return blob;
+    if (!response.body || total === 0 || !onProgress) {
+        return await response.blob();
+    }
+
+    const reader = response.body.getReader();
+    const chunks: Uint8Array<ArrayBuffer>[] = [];
+    let receivedLength = 0;
+    let lastPercent = -1;
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        chunks.push(value);
+        receivedLength += value.length;
+
+        const percent = Math.min((receivedLength / total) * 100, 100);
+
+        const roundedPercent = Math.floor(percent);
+        if (roundedPercent !== lastPercent) {
+            onProgress(percent);
+            lastPercent = roundedPercent;
+        }
+    }
+
+    return new Blob(chunks);
 }
 
-async function downloadMinecraftJar(version: VersionListEntry, includeServer: boolean): Promise<MinecraftJar> {
+async function downloadMinecraftJar(version: VersionListEntry): Promise<MinecraftJar> {
     minecraftLoadProgress.next({ version: version.id, stage: "downloading", percent: 0 });
     console.log(`Downloading Minecraft jar for version: ${version.id}`);
     const versionManifest = await fetchVersionManifest(version);
@@ -293,29 +305,10 @@ async function downloadMinecraftJar(version: VersionListEntry, includeServer: bo
     const { blob, remapped } = await prepareMinecraftJarBlob(version.id, client, mappings);
     minecraftLoadProgress.next({ version: version.id, stage: "opening", percent: 100 });
     const jar = await openJar(version.id, blob);
-
-    let serverJar: Jar | undefined;
-    const server = versionManifest.downloads.server;
-
-    // Only download the server jar when enabled by the user and for an unobfuscated version as we do not need to remap it.
-    if (includeServer && isUnobfuscated(version) && !mappings && server) {
-        try {
-            minecraftLoadProgress.next({ version: version.id, stage: "downloading-server", percent: 0 });
-            const serverBlob = await fetchServerJar(server, percent => {
-                minecraftLoadProgress.next({ version: version.id, stage: "downloading-server", percent });
-            });
-            minecraftLoadProgress.next({ version: version.id, stage: "opening", percent: 100 });
-            serverJar = await openJar(`${version.id}-server`, serverBlob);
-        } catch (error) {
-            console.warn(`Failed to open server jar for ${version.id}`, error);
-        }
-    }
-
     return {
         version: version.id,
         jar,
         blob,
-        serverJar,
         metadata: {
             clientSha1: client.sha1,
             mappingsSha1: versionManifest.downloads.client_mappings?.sha1,
