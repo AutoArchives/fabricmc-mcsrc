@@ -5,6 +5,7 @@ import { useObservable } from "../utils/UseObservable";
 
 const progressTitles = {
     downloading: "Downloading Minecraft Jar",
+    "downloading-server": "Downloading Minecraft Server Jar",
     remapping: "Remapping Minecraft Jar",
     opening: "Opening Minecraft Jar",
 };
@@ -22,6 +23,7 @@ const ProgressModal = () => {
         <Modal
             title={progressTitles[stage]}
             open={progress !== undefined}
+            zIndex={2000}
             footer={null}
             closable={false}
         >
