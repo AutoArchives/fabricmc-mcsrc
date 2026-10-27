@@ -1,11 +1,14 @@
 package mcsrc;
 
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import net.fabricmc.mappingio.format.MappingFormat;
 
 import org.teavm.jso.JSExport;
 import org.teavm.jso.core.JSMap;
@@ -15,6 +18,7 @@ import org.teavm.jso.typedarrays.Int8Array;
 
 public final class WasmInterface {
     private static final Indexer INDEXER = new Indexer();
+    private static final JavadocMappings JAVADOC_MAPPINGS = new JavadocMappings();
     private static ClassFileRemapper remapper;
 
     private WasmInterface() {
@@ -106,9 +110,83 @@ public final class WasmInterface {
     @JSExport
     public static Int8Array remapEntry(ArrayBuffer entry) {
         byte[] remappedBytes = requireRemapper().remap(toBytes(entry));
-        var result = new Int8Array(remappedBytes.length);
-        result.set(remappedBytes);
-        return result;
+        return toInt8Array(remappedBytes);
+    }
+
+    @JSExport
+    public static String readJavadocs(ArrayBuffer mappings) throws IOException {
+        return switch (JAVADOC_MAPPINGS.read(toBytes(mappings))) {
+            case TINY_2_FILE -> "tiny2";
+            case ENIGMA_FILE -> "enigma";
+            default -> throw new IllegalStateException("Unsupported Javadoc mapping format");
+        };
+    }
+
+    @JSExport
+    public static void beginJavadocDirectory() {
+        JAVADOC_MAPPINGS.beginDirectory();
+    }
+
+    @JSExport
+    public static String readJavadocDirectoryFile(ArrayBuffer mappings, String path) throws IOException {
+        return JAVADOC_MAPPINGS.readDirectoryFile(toBytes(mappings), path);
+    }
+
+    @JSExport
+    public static void finishJavadocDirectory() {
+        JAVADOC_MAPPINGS.finishDirectory();
+    }
+
+    @JSExport
+    public static void abortJavadocDirectory() {
+        JAVADOC_MAPPINGS.abortDirectory();
+    }
+
+    @JSExport
+    public static Int8Array writeJavadocs(String format) throws IOException {
+        return toInt8Array(JAVADOC_MAPPINGS.write(javadocFormat(format)));
+    }
+
+    @JSExport
+    public static Int8Array writeJavadocClass(String owner) throws IOException {
+        return toInt8Array(JAVADOC_MAPPINGS.writeClass(owner));
+    }
+
+    @JSExport
+    public static Int8Array createJavadocs(String format) throws IOException {
+        return toInt8Array(new JavadocMappings().write(javadocFormat(format)));
+    }
+
+    @JSExport
+    public static void resetJavadocs() {
+        JAVADOC_MAPPINGS.reset();
+    }
+
+    @JSExport
+    public static String getJavadoc(int kind, String owner, String name, String descriptor) {
+        return JAVADOC_MAPPINGS.get(javadocElementKind(kind), owner, name, descriptor);
+    }
+
+    @JSExport
+    public static void setJavadoc(int kind, String owner, String name, String descriptor, String comment) throws IOException {
+        JAVADOC_MAPPINGS.set(javadocElementKind(kind), owner, name, descriptor, comment);
+    }
+
+    private static MappingFormat javadocFormat(String format) throws IOException {
+        return switch (format) {
+            case "tiny2" -> MappingFormat.TINY_2_FILE;
+            case "enigma" -> MappingFormat.ENIGMA_FILE;
+            default -> throw new IOException("Unsupported Javadoc mapping format: " + format);
+        };
+    }
+
+    private static JavadocMappings.ElementKind javadocElementKind(int kind) {
+        return switch (kind) {
+            case 0 -> JavadocMappings.ElementKind.CLASS;
+            case 1 -> JavadocMappings.ElementKind.FIELD;
+            case 2 -> JavadocMappings.ElementKind.METHOD;
+            default -> throw new IllegalArgumentException("Unsupported Javadoc element kind: " + kind);
+        };
     }
 
     private static ClassFileRemapper requireRemapper() {
@@ -121,6 +199,12 @@ public final class WasmInterface {
 
     private static byte[] toBytes(ArrayBuffer buffer) {
         return new Int8Array(buffer).copyToJavaArray();
+    }
+
+    private static Int8Array toInt8Array(byte[] bytes) {
+        var result = new Int8Array(bytes.length);
+        result.set(bytes);
+        return result;
     }
 
     private static String serialize(ClassData data) {

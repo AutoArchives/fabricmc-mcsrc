@@ -17,6 +17,7 @@ interface VersionSelectorProps {
     ariaLabel?: string;
     minWidth?: number;
     size?: ButtonProps["size"];
+    disabled?: boolean;
 }
 
 function VersionSelector({
@@ -26,6 +27,7 @@ function VersionSelector({
     ariaLabel,
     minWidth = 128,
     size,
+    disabled = false,
 }: VersionSelectorProps) {
     const versions = useObservable(versionsSource);
     const currentVersion = useObservable(selectedVersion);
@@ -136,12 +138,14 @@ function VersionSelector({
             align={{ offset: [12, 0] }}
             arrow={false}
             content={content}
-            open={open}
+            open={disabled ? false : open}
             placement="bottom"
             trigger="click"
-            onOpenChange={setOpen}
+            onOpenChange={nextOpen => {
+                if (!disabled) setOpen(nextOpen);
+            }}
         >
-            <Button aria-label={ariaLabel} size={size} style={{ minWidth, justifyContent: "space-between" }}>
+            <Button disabled={disabled} aria-label={ariaLabel} size={size} style={{ minWidth, justifyContent: "space-between" }}>
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{selectedVersionId ?? placeholder}</span>
                 <DownOutlined />
             </Button>
