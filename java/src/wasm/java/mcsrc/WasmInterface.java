@@ -8,9 +8,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import mcsrc.javadoc.DeclarationMetadata;
+
 import net.fabricmc.mappingio.format.MappingFormat;
 
 import org.teavm.jso.JSExport;
+import org.teavm.jso.JSBody;
+import org.teavm.jso.JSObject;
 import org.teavm.jso.core.JSMap;
 import org.teavm.jso.core.JSString;
 import org.teavm.jso.typedarrays.ArrayBuffer;
@@ -66,6 +70,19 @@ public final class WasmInterface {
                 .map(WasmInterface::serialize)
                 .toArray(String[]::new);
     }
+
+    @JSExport
+    public static JSObject getDeclarationMetadata(ArrayBuffer classBytes, String methodName, String descriptor) {
+        DeclarationMetadata metadata = DeclarationMetadata.read(toBytes(classBytes), methodName, descriptor);
+        return declarationMetadata(
+                metadata.typeParameters().toArray(String[]::new),
+                metadata.exceptions().toArray(String[]::new),
+                metadata.recordComponents().toArray(String[]::new));
+    }
+
+    @JSBody(params = { "typeParameters", "exceptions", "recordComponents" },
+            script = "return { typeParameters: typeParameters, exceptions: exceptions, recordComponents: recordComponents };")
+    private static native JSObject declarationMetadata(String[] typeParameters, String[] exceptions, String[] recordComponents);
 
     @JSExport
     public static void loadMappings(ArrayBuffer mappings) {
