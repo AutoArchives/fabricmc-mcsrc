@@ -34,16 +34,17 @@ const HeaderBody = () => {
                     </span>
                 </Tooltip>
             </div>
-            <Tooltip title={javadocMode ? "Version comparison is unavailable in Javadoc mode" : "Compare versions"}>
-                <Button
-                    disabled={javadocMode}
-                    icon={<SwapOutlined />}
-                    onClick={() => diffView.next(true)}
-                >
-                    Compare
-                </Button>
-            </Tooltip>
-            {showAnnotaterShortcutValue && <JavadocFilePicker annotaterShortcut />}
+            {!javadocMode && (
+                <Tooltip title="Compare versions">
+                    <Button
+                        icon={<SwapOutlined />}
+                        onClick={() => diffView.next(true)}
+                    >
+                        Compare
+                    </Button>
+                </Tooltip>
+            )}
+            {(showAnnotaterShortcutValue || javadocMode) && <JavadocFilePicker annotaterShortcut />}
             <div style={{ flex: "0 0 auto" }}>
                 <SettingsModalButton />
             </div>

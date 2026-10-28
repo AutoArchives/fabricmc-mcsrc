@@ -6,7 +6,8 @@ import { useObservable } from "../utils/UseObservable";
 import { diffView, selectedMinecraftVersion } from "../logic/State";
 import { showAnnotaterShortcut } from "../logic/Settings";
 import AnnotaterIcon from "../ui/annotater.svg?react";
-import { activateJavadocFile, activeJavadocFile } from "./Javadoc";
+import AnnotaterSadIcon from "../ui/annotater-sad.svg?react";
+import { activateJavadocFile, activeJavadocFile, deactivateJavadocFile } from "./Javadoc";
 import { flushJavadocDrafts } from "./JavadocAutosave";
 import {
     createJavadocFile,
@@ -27,6 +28,7 @@ const JavadocFilePicker = ({ annotaterShortcut = false, onOpen }: {
 }) => {
     const selectedFile = useObservable(activeJavadocFile);
     const [loading, setLoading] = useState(false);
+    const [hovered, setHovered] = useState(false);
     const [unsupportedAttempt, setUnsupportedAttempt] = useState(0);
     const [messageApi, contextHolder] = message.useMessage();
 
@@ -112,18 +114,42 @@ const JavadocFilePicker = ({ annotaterShortcut = false, onOpen }: {
         }
     };
 
+    const stopAnnotating = async () => {
+        setLoading(true);
+
+        try {
+            await flushJavadocDrafts();
+            deactivateJavadocFile();
+        } catch (error) {
+            console.error("Unable to exit Javadoc mode:", error);
+            messageApi.error("Unable to save Javadoc changes. Resolve the save error before exiting Javadoc mode.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
     if (annotaterShortcut) {
+        const Icon = selectedFile && hovered ? AnnotaterSadIcon : AnnotaterIcon;
+
         return (
             <>
                 {contextHolder}
-                <Tooltip title="Open Annotater directory…">
+                <Tooltip title={selectedFile
+                    ? "When adding Javadocs to classes, version comparison and selection cannot be used. Click here to exit Javadoc editor mode."
+                    : "Open Annotater directory…"}>
                     <Button
-                        aria-label="Open Annotater directory"
+                        aria-label={selectedFile ? "Annotating: exit Javadoc editing mode" : "Open Annotater directory"}
+                        aria-pressed={selectedFile !== null}
+                        type={selectedFile ? "primary" : "default"}
                         disabled={loading}
                         loading={loading}
-                        icon={<AnnotaterIcon width="18" height="18" aria-hidden="true" />}
-                        onClick={() => openMappings("annotater")}
-                    />
+                        icon={<Icon width="18" height="18" aria-hidden="true" />}
+                        onMouseEnter={() => setHovered(true)}
+                        onMouseLeave={() => setHovered(false)}
+                        onClick={() => selectedFile ? stopAnnotating() : openMappings("annotater")}
+                    >
+                        {selectedFile ? "Annotating" : null}
+                    </Button>
                 </Tooltip>
             </>
         );
