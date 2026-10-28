@@ -20,7 +20,7 @@
   box-sizing: border-box;
   padding: 8px 12px;
   border-left: 2px solid var(--token-comment);
-  color: var(--vscode-editor-foreground);
+  color: var(--token-comment);
   background: var(--vscode-editor-background);
   white-space: normal;
   overflow-wrap: anywhere;
