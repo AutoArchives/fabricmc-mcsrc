@@ -55,6 +55,9 @@ final class ClassIndexVisitor extends ClassVisitor {
 			case Opcodes.GETSTATIC, Opcodes.PUTSTATIC, Opcodes.GETFIELD, Opcodes.PUTFIELD -> {
 				if (Indexer.isReferenceTarget(owner)) {
 					indexFieldReference(callerId, new Entry.Field(owner, name, descriptor));
+                    if (opcode == Opcodes.GETSTATIC || opcode == Opcodes.PUTSTATIC) {
+                        indexStaticOwnerReference(callerId, owner);
+                    }
 				}
 			}
             }
@@ -94,6 +97,9 @@ final class ClassIndexVisitor extends ClassVisitor {
 		public void visitMethodInsn(int opcode, String owner, String name, String descriptor, boolean isInterface) {
 			if (Indexer.isReferenceTarget(owner)) {
 				indexMethodReference(callerId, new Entry.Method(owner, name, descriptor));
+                if (opcode == Opcodes.INVOKESTATIC) {
+                    indexStaticOwnerReference(callerId, owner);
+                }
 			}
             if (bridge && owner.equals(callerEntry.owner()) && name.equals(callerEntry.name())) {
                 indexer.addMethodBridge(callerEntry, new Entry.Method(owner, name, descriptor));
@@ -113,6 +119,10 @@ final class ClassIndexVisitor extends ClassVisitor {
 						case Entry.Field field -> indexFieldReference(callerId, field);
 						case Entry.Method method -> indexMethodReference(callerId, method);
 					}
+
+                    if (implMethod.getTag() == Opcodes.H_INVOKESTATIC) {
+                        indexStaticOwnerReference(callerId, implMethod.getOwner());
+                    }
 				}
 
 				indexMethodDescriptor(callerId, descriptor);
@@ -178,4 +188,10 @@ final class ClassIndexVisitor extends ClassVisitor {
 	private void indexFieldReference(int callerId, Entry.Field referencedEntry) {
 		indexer.addReference(referencedEntry.str(), callerId);
 	}
+
+    private void indexStaticOwnerReference(int callerId, String owner) {
+        if (!owner.equals(name)) {
+            indexer.addReference(owner, callerId);
+        }
+    }
 }

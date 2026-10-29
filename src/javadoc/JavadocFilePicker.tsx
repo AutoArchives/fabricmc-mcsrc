@@ -7,7 +7,7 @@ import { diffView, selectedMinecraftVersion } from "../logic/State";
 import { showAnnotaterShortcut } from "../logic/Settings";
 import AnnotaterIcon from "../ui/annotater.svg?react";
 import AnnotaterSadIcon from "../ui/annotater-sad.svg?react";
-import { activateJavadocFile, activeJavadocFile, deactivateJavadocFile } from "./Javadoc";
+import { activateJavadocFile, activeJavadocFile, activeJavadocToken, deactivateJavadocFile } from "./Javadoc";
 import { flushJavadocDrafts } from "./JavadocAutosave";
 import {
     createJavadocFile,
@@ -73,6 +73,7 @@ const JavadocFilePicker = ({ annotaterShortcut = false, onOpen }: {
         setLoading(true);
 
         try {
+            activeJavadocToken.next(null);
             await flushJavadocDrafts();
             let source: JavadocSource;
             if (key === "open") {
@@ -138,7 +139,7 @@ const JavadocFilePicker = ({ annotaterShortcut = false, onOpen }: {
                     ? "When adding Javadocs to classes, version comparison and selection cannot be used. Click here to exit Javadoc editor mode."
                     : "Open Annotater directory…"}>
                     <Button
-                        aria-label={selectedFile ? "Annotating: exit Javadoc editing mode" : "Open Annotater directory"}
+                        aria-label={selectedFile ? "Annotatering: exit Javadoc editing mode" : "Open Annotater directory"}
                         aria-pressed={selectedFile !== null}
                         type={selectedFile ? "primary" : "default"}
                         disabled={loading}
@@ -148,7 +149,7 @@ const JavadocFilePicker = ({ annotaterShortcut = false, onOpen }: {
                         onMouseLeave={() => setHovered(false)}
                         onClick={() => selectedFile ? stopAnnotating() : openMappings("annotater")}
                     >
-                        {selectedFile ? "Annotating" : null}
+                        {selectedFile ? "Annotatering" : null}
                     </Button>
                 </Tooltip>
             </>

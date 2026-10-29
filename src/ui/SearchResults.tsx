@@ -119,10 +119,10 @@ function openSearchResult(item: SearchResult) {
     const classFilePath = getResultClassFilePath(item);
 
     if (item.type !== "classes") {
-        const [, name, descriptor] = item.value.split(":");
+        const [owner, name, descriptor] = item.value.split(":");
         const targetType = item.type === "methods" ? "method" : "field";
         const target = targetType === "method" ? `${name}:${descriptor}` : name;
-        requestTokenJump(classFilePath, targetType, target);
+        requestTokenJump(classFilePath, targetType, target, toClassName(owner));
     }
 
     openCodeTab(classFilePath);

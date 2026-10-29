@@ -37,7 +37,7 @@ async function findWorker(): Promise<WorkerInstance> {
         if (count[i] === 0) return workers[i];
     }
 
-    if (workers.length < (MAX_THREADS - 1)) {
+    if (workers.length < Math.max(1, MAX_THREADS - 1)) {
         i = workers.length;
         await ensureWorkers(workers.length + 1);
     }

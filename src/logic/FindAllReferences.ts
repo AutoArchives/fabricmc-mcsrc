@@ -34,8 +34,9 @@ export const referenceResults = jarIndex.pipe(
                 map(([includeHierarchy, navigation]): ReferenceKey[] => {
                     if (getQueryType(query) === 'field' && navigation?.jarName === index.minecraftJar.jar.name) {
                         const [owner, name, descriptor] = query.split(':');
+                        const keys = navigation.index.fieldReferenceKeys(toClassName(owner), name, descriptor);
                         const accessor = navigation.index.recordAccessor(toClassName(owner), name, descriptor);
-                        if (accessor) return [query, accessor];
+                        return accessor ? [...keys, accessor] : keys;
                     }
                     if (includeHierarchy && getQueryType(query) === 'method') {
                         if (!navigation || navigation.jarName !== index.minecraftJar.jar.name) return [];

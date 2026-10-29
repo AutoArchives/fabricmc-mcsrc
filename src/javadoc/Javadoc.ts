@@ -17,6 +17,7 @@ export const activeJavadocToken = new BehaviorSubject<Token | null>(null);
 export const javadocRevision = new BehaviorSubject(0);
 
 export function activateJavadocFile(file: JavadocSource) {
+    activeJavadocToken.next(null);
     bytecode.value = false;
     activeJavadocFile.next(file);
     publishJavadocChange();
@@ -30,6 +31,7 @@ export function deactivateJavadocFile() {
 
 export async function saveTokenJavadoc(token: Token, javadoc: JavadocString | undefined, file = activeJavadocFile.value) {
     if (!file) throw new Error("No Javadoc mapping file selected");
+    if (file !== activeJavadocFile.value) throw new Error("The Javadoc mapping source has changed");
 
     const target = getJavadocTarget(token);
     if (!target) throw new Error("This token cannot have Javadoc");

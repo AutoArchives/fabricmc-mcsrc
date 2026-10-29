@@ -1,5 +1,5 @@
 import type { ClassData } from '../workers/jar-index/client';
-import type { MemberData, Method } from '../workers/jar-index/types';
+import type { Field, MemberData, Method } from '../workers/jar-index/types';
 import type { ClassName } from '../utils/Names';
 import type { Token } from './Tokens';
 import { isAbstract, isInterface, isRecord } from '../utils/Classfile';
@@ -35,12 +35,14 @@ export class HierarchyNavigation {
     private readonly classes: Map<ClassName, ClassData>;
     private readonly children = new Map<ClassName, ClassName[]>();
     private readonly methods = new Map<ClassName, MethodDeclaration[]>();
+    private readonly fields: Map<ClassName, Set<Field>>;
     private readonly methodsByName = new Map<string, MethodDeclaration[]>();
     private readonly ancestors = new Map<ClassName, Set<ClassName>>();
     private readonly methodAccess: Map<ClassName, Record<string, number>>;
 
     constructor(classes: ClassData[], members: MemberData[]) {
         this.classes = new Map(classes.map(data => [data.className, data]));
+        this.fields = new Map(members.map(data => [data.className, new Set(data.fields)]));
         // Every declared method has access flags, including private and static methods.
         this.methodAccess = new Map(members.map(data => [data.className, data.methodAccess]));
         for (const data of classes) {
@@ -153,6 +155,35 @@ export class HierarchyNavigation {
         if (!isRecord(this.classes.get(className)?.accessFlags ?? 0)) return undefined;
         const accessor: Method = `${className}:${name}:()${descriptor}`;
         return this.methodAccess.get(className)?.[accessor] !== undefined ? accessor : undefined;
+    }
+
+    private resolveField(className: ClassName, name: string, descriptor: string, visited = new Set<ClassName>()): Field | undefined {
+        if (visited.has(className)) return undefined;
+        visited.add(className);
+        const key: Field = `${className}:${name}:${descriptor}`;
+        if (this.fields.get(className)?.has(key)) return key;
+        const data = this.classes.get(className);
+        if (!data) return undefined;
+        // JVM field resolution searches interfaces before the superclass.
+        for (const parent of [...data.interfaces, ...(data.superName ? [data.superName] : [])]) {
+            const field = this.resolveField(parent, name, descriptor, visited);
+            if (field) return field;
+        }
+        return undefined;
+    }
+
+    /** Returns symbolic owners that resolve to the same field declaration. */
+    fieldReferenceKeys(className: ClassName, name: string, descriptor: string): Field[] {
+        const requested: Field = `${className}:${name}:${descriptor}`;
+        const declaration = this.resolveField(className, name, descriptor);
+        if (!declaration) return [requested];
+        const keys = new Set<Field>([requested]);
+        for (const owner of this.classes.keys()) {
+            if (this.resolveField(owner, name, descriptor) === declaration) {
+                keys.add(`${owner}:${name}:${descriptor}`);
+            }
+        }
+        return [...keys];
     }
 
     isInterfaceClass(className: ClassName): boolean {

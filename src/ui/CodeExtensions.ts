@@ -145,14 +145,14 @@ export function createEditorOpener(
                     // Format: method:methodName:descriptor
                     const [_, methodName, descriptor] = fragment;
                     const target = `${methodName}:${descriptor}`;
-                    requestTokenJump(baseClassName, targetType, target);
+                    requestTokenJump(baseClassName, targetType, target, classNameFromClassFilePath(className));
                     if (!jumpInSameFile) {
                         openCodeTab(baseClassName);
                     }
                 } else if (targetType === 'field' && fragment.length === 2) {
                     // Format: field:fieldName
                     const target = fragment[1];
-                    requestTokenJump(baseClassName, targetType, target);
+                    requestTokenJump(baseClassName, targetType, target, classNameFromClassFilePath(className));
                     if (!jumpInSameFile) {
                         openCodeTab(baseClassName);
                     }
